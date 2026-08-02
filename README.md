@@ -11,7 +11,8 @@ forge, copy the JSON into a Claude conversation for feedback or co-design, paste
 Claude's revisions back, load them. Both sides edit the same artifact; notes (per
 object and per level) travel inside the schema so intent rides along.
 
-See [`SPEC.md`](./SPEC.md) for the full build specification and
+See [`SPEC.md`](./SPEC.md) for the full build specification,
+[`FOLLOWUP.md`](./FOLLOWUP.md) for milestone status + the remaining backlog, and
 [`reference/levelforge.html`](./reference/levelforge.html) for the play-tested
 prototype (forge v0.11, schema v0.7) this build ports.
 
