@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "0.8",
+  "meta": {
+    "name": "rolling-start",
+    "scene": "arcade",
+    "gravity": 1,
+    "note": "Drive mode (Red Ball). Steer the hero with ◀ ▶, jump with ⤒, and reach the 🏁 goal. The spikey 👿 is a hazard — don't touch it. Prototype tuning.",
+    "hero": "🔴",
+    "background": "sky",
+    "backgroundImage": null,
+    "mode": "drive",
+    "goal": { "x": 1440, "y": 700, "r": 46 }
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 180, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "box", "x": 500, "y": 720, "w": 240, "h": 30, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "step one" },
+    { "id": "o2", "shape": "box", "x": 820, "y": 620, "w": 200, "h": 30, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "step two" },
+    { "id": "o3", "shape": "box", "x": 1120, "y": 640, "w": 180, "h": 24, "angle": 0, "material": "metal", "anchored": true, "path": { "x": 1120, "y": 760, "speed": 70 }, "note": "moving lift" },
+    { "id": "o4", "shape": "box", "x": 1440, "y": 780, "w": 240, "h": 30, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "goal platform" },
+    { "id": "o5", "shape": "emoji", "x": 700, "y": 828, "r": 26, "angle": 0, "material": "target", "emoji": "👿", "anchored": true, "path": null, "note": "hazard on the ground" }
+  ]
+}

@@ -10,11 +10,12 @@
    ===================================================================== */
 
 import Matter from 'matter-js';
-import { Level, LevelObject, BRUSH_DEFAULT } from '../schema';
+import { Level, LevelObject } from '../schema';
 import { MATERIALS } from '../materials';
 import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
-import { triVerts } from '../editor/geometry';
 import { impactOf, breaksAt } from './break-model';
+import { makeMatterBody } from './bodies';
+import { behaviorFor, EXPLOSION } from './behaviors';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
 
@@ -34,6 +35,8 @@ interface BodyPlugin {
   breakAt: number | null;
   isIce: boolean;
   melt: number;
+  /** Detonates nearby bodies when this one breaks (e.g. 💣). */
+  explode: boolean;
 }
 
 interface Mover {
@@ -78,30 +81,6 @@ export class PlaySession {
     this.loadBall();
   }
 
-  private makeBody(o: LevelObject): Matter.Body {
-    const m = MATERIALS[o.material];
-    const opts: Matter.IBodyDefinition = {
-      density: m.density,
-      friction: m.friction,
-      restitution: m.restitution,
-      angle: (o.angle || 0) / DEG,
-      isStatic: !!o.anchored || !!o.path,
-    };
-    if (o.shape === 'box') return Bodies.rectangle(o.x, o.y, o.w!, o.h!, opts);
-    if (o.shape === 'tri') return Bodies.fromVertices(o.x, o.y, [triVerts({ w: o.w!, h: o.h! })], opts);
-    if (o.shape === 'blob') {
-      const r = o.brushR ?? BRUSH_DEFAULT;
-      const pts = o.pts ?? [];
-      const parts = pts.map(([rx, ry]) => Bodies.circle(o.x + rx, o.y + ry, r, { ...opts, isStatic: false }));
-      const b = parts.length === 1 ? parts[0] : Body.create({ parts });
-      Body.setPosition(b, { x: o.x, y: o.y });
-      if (o.angle) Body.setAngle(b, o.angle / DEG);
-      Body.setStatic(b, !!opts.isStatic);
-      return b;
-    }
-    return Bodies.circle(o.x, o.y, o.r!, opts);
-  }
-
   private buildBodies(): void {
     // Group by weld group; blobs are always solo (already compound), and
     // ungrouped pieces are singleton groups.
@@ -117,11 +96,11 @@ export class PlaySession {
     for (const [, members] of groups) {
       let top: Matter.Body;
       if (members.length === 1) {
-        top = this.makeBody(members[0]);
+        top = makeMatterBody(members[0]);
         this.partOf.set(members[0].id, top);
       } else {
         const parts = members.map((o) => {
-          const b = this.makeBody(o);
+          const b = makeMatterBody(o);
           Body.setStatic(b, false);
           return b;
         });
@@ -142,6 +121,7 @@ export class PlaySession {
       breakAt,
       isIce: members.length === 1 && members[0].material === 'ice',
       melt: 1,
+      explode: members.some((o) => behaviorFor(o) === 'explode'),
     };
   }
 
@@ -185,6 +165,7 @@ export class PlaySession {
   private breakBody(top: Matter.Body): void {
     const p = top.plugin as BodyPlugin;
     if (p.lvlIds.every((id) => this.broken.has(id))) return;
+    const at = { x: top.position.x, y: top.position.y };
     for (const id of p.lvlIds) this.broken.add(id);
     Composite.remove(this.engine.world, top);
     for (const o of this.level.objects) {
@@ -193,6 +174,28 @@ export class PlaySession {
       else this.destroyLeft--;
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
+    if (p.explode) this.explodeAt(at.x, at.y);
+  }
+
+  /** Shove nearby bodies and detonate breakable ones within lethal range. */
+  private explodeAt(x: number, y: number): void {
+    const detonate: Matter.Body[] = [];
+    for (const b of this.bodies) {
+      const p = b.plugin as BodyPlugin;
+      if (p.lvlIds.every((id) => this.broken.has(id))) continue;
+      if (b.isStatic) continue;
+      const dx = b.position.x - x;
+      const dy = b.position.y - y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > EXPLOSION.radius) continue;
+      const falloff = 1 - d / EXPLOSION.radius;
+      const mag = (EXPLOSION.impulse * falloff) / Math.max(0.2, b.mass);
+      Matter.Body.setVelocity(b, { x: b.velocity.x + (dx / d) * mag, y: b.velocity.y + (dy / d) * mag - mag * 0.3 });
+      Matter.Sleeping.set(b, false);
+      if (d <= EXPLOSION.lethalRadius && p.breakAt != null) detonate.push(b);
+    }
+    // Chain: detonating these may trigger further explosions (guarded by broken set).
+    for (const b of detonate) this.breakBody(b);
   }
 
   private loadBall(): void {

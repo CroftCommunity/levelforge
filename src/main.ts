@@ -35,8 +35,10 @@ import {
   hasPersistentStore,
   downloadLevel,
 } from './store';
-import { committedLevels } from './levels-manifest';
+import { committedLevels, CommittedLevel } from './levels-manifest';
 import { PlaySession } from './play/world';
+import { DriveSession } from './play/drive';
+import { searchEmoji } from './editor/emoji-data';
 
 const MAXZOOM = 4;
 const BRUSH = BRUSH_DEFAULT;
@@ -247,6 +249,23 @@ function drawEdit(): void {
   drawSlingshotCtx(ctx, level.slingshot.x, level.slingshot.y, true);
   // ghost hero at the launcher
   drawMaterialCtx(ctx, { shape: 'emoji', x: level.slingshot.x, y: level.slingshot.y - 30, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+  // drive-mode goal handle
+  if (level.meta.mode === 'drive' && level.meta.goal) {
+    const g = level.meta.goal;
+    ctx.save();
+    ctx.strokeStyle = '#ffd24a';
+    ctx.setLineDash([10, 8]);
+    ctx.lineWidth = 3 / view.zoom;
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.r, 0, 7);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = g.r * 1.1 + 'px system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🏁', g.x, g.y);
+    ctx.restore();
+  }
 
   if (level.objects.length === 0 && !(gesture && gesture.kind === 'paint')) {
     ctx.fillStyle = 'rgba(200,212,228,.85)';
@@ -335,6 +354,7 @@ function drawEdit(): void {
 
 /* --------------------------- edit input ------------------------------- */
 let selId: string | null = null;
+let prevSelId: string | null = null;
 let armed: ShapePreset | null = null;
 let armedRot = false;
 let handMode: 'adjust' | 'view' = 'adjust';
@@ -347,7 +367,8 @@ type Gesture =
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
   | { kind: 'paint'; pts: { x: number; y: number }[] }
   | { kind: 'path' }
-  | { kind: 'sling' };
+  | { kind: 'sling' }
+  | { kind: 'goal' };
 
 const pointers = new Map<number, { x: number; y: number }>();
 const spointers = new Map<number, { sx: number; sy: number }>();
@@ -459,7 +480,7 @@ cv.addEventListener('pointerdown', (e) => {
   spointers.set(e.pointerId, sp);
 
   if (mode === 'play') {
-    session?.pointerDown(p);
+    if (session instanceof PlaySession) session.pointerDown(p);
     return;
   }
 
@@ -496,6 +517,13 @@ cv.addEventListener('pointerdown', (e) => {
     gesture = { kind: 'path' };
     return;
   }
+  if (level.meta.mode === 'drive' && level.meta.goal && near(p, level.meta.goal.x, level.meta.goal.y, level.meta.goal.r + 10)) {
+    snap();
+    gesture = { kind: 'goal' };
+    selId = null;
+    syncInspector();
+    return;
+  }
   if (near(p, level.slingshot.x, level.slingshot.y + 30, 60)) {
     snap();
     gesture = { kind: 'sling' };
@@ -505,6 +533,7 @@ cv.addEventListener('pointerdown', (e) => {
   }
   const hit = hitObject(p);
   if (hit) {
+    if (selId && selId !== hit.id) prevSelId = selId;
     selId = hit.id;
     syncInspector();
     snap();
@@ -527,7 +556,7 @@ cv.addEventListener('pointermove', (e) => {
   const prevS = spointers.get(e.pointerId)!;
   spointers.set(e.pointerId, sp);
   if (mode === 'play') {
-    session?.pointerMove(p);
+    if (session instanceof PlaySession) session.pointerMove(p);
     return;
   }
   if (!gesture) return;
@@ -583,6 +612,9 @@ cv.addEventListener('pointermove', (e) => {
   } else if (gesture.kind === 'sling') {
     level.slingshot.x = p.x;
     level.slingshot.y = Math.min(p.y, level.world.floorY - 60);
+  } else if (gesture.kind === 'goal' && level.meta.goal) {
+    level.meta.goal.x = p.x;
+    level.meta.goal.y = p.y;
   }
 });
 
@@ -590,7 +622,7 @@ function endPointer(e: PointerEvent): void {
   pointers.delete(e.pointerId);
   spointers.delete(e.pointerId);
   if (mode === 'play') {
-    if (pointers.size === 0) session?.pointerUp();
+    if (pointers.size === 0 && session instanceof PlaySession) session.pointerUp();
     return;
   }
   if (pointers.size > 0) return;
@@ -620,6 +652,10 @@ function endPointer(e: PointerEvent): void {
     if (gesture.kind === 'sling') {
       level.slingshot.x = snapN(level.slingshot.x);
       level.slingshot.y = snapN(level.slingshot.y);
+    }
+    if (gesture.kind === 'goal' && level.meta.goal) {
+      level.meta.goal.x = snapN(level.meta.goal.x);
+      level.meta.goal.y = snapN(level.meta.goal.y);
     }
     scheduleAutosave();
   }
@@ -793,6 +829,19 @@ function renderEmojiPicker(): void {
     }
   }
 }
+function renderEmojiResults(query: string): void {
+  const box = $('eresults');
+  box.innerHTML = '';
+  const hits = searchEmoji(query);
+  for (const em of hits) {
+    const b = document.createElement('button');
+    b.textContent = em;
+    b.addEventListener('click', () => pickEmoji(em));
+    box.appendChild(b);
+  }
+}
+$<HTMLInputElement>('esearch').addEventListener('input', (e) => renderEmojiResults((e.target as HTMLInputElement).value));
+
 function openEmoji(mode2: 'stamp' | 'hero'): void {
   emojiFor = mode2;
   $('etitle').textContent =
@@ -800,6 +849,8 @@ function openEmoji(mode2: 'stamp' | 'hero'): void {
       ? 'PICK YOUR HERO — the emoji you fling at the villains.'
       : 'EMOJI STAMP — a round physics body in the current material. Stamp villains with target material.';
   $<HTMLInputElement>('einput').value = '';
+  $<HTMLInputElement>('esearch').value = '';
+  $('eresults').innerHTML = '';
   renderEmojiPicker();
   $('emodal').style.display = 'flex';
 }
@@ -840,8 +891,20 @@ $('set-after').onclick = () => {
   savePrefs();
   syncSettings();
 };
+$('set-mode').onclick = () => {
+  snap();
+  if (level.meta.mode === 'drive') {
+    level.meta.mode = 'slingshot';
+  } else {
+    level.meta.mode = 'drive';
+    // give drive levels a goal to reach if they don't have one yet
+    if (!level.meta.goal) level.meta.goal = { x: level.world.w - 220, y: level.world.floorY - 60, r: 44 };
+  }
+  syncSettings();
+};
 function syncSettings(): void {
   $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
+  $('set-mode').textContent = level.meta.mode === 'drive' ? '🏁 drive (Red Ball)' : '🎯 slingshot';
   syncHero();
 }
 $('herobtn').onclick = () => {
@@ -916,6 +979,7 @@ function syncInspector(): void {
   $('tg-anchor').classList.toggle('on', !!sel.anchored);
   $('tg-move').classList.toggle('on', !!sel.path);
   $('tg-note').classList.toggle('on', !!sel.note);
+  $('tg-weld').classList.toggle('on', !!sel.group);
   const protect = $('tg-protect');
   protect.style.display = sel.material === 'target' ? 'flex' : 'none';
   protect.classList.toggle('on', sel.role === 'protect');
@@ -967,6 +1031,31 @@ $('tg-protect').onclick = () => {
   snap();
   s.role = s.role === 'protect' ? 'destroy' : 'protect';
   syncInspector();
+};
+$('tg-weld').onclick = () => {
+  const s = selected();
+  if (!s) return;
+  if (s.group) {
+    snap();
+    delete s.group;
+    syncInspector();
+    return;
+  }
+  if (s.shape === 'blob') {
+    toast('a blob is already one welded piece');
+    return;
+  }
+  const prev = prevSelId ? level.objects.find((o) => o.id === prevSelId && o.id !== s.id) : null;
+  if (!prev) {
+    toast('tap another piece first, then 🔗 to weld the two together');
+    return;
+  }
+  snap();
+  const gid = prev.group || `g-${prev.id}`;
+  prev.group = gid;
+  s.group = gid;
+  syncInspector();
+  toast('welded — they move as one rigid piece in Test');
 };
 $('del').onclick = () => {
   if (!selId) return;
@@ -1230,19 +1319,30 @@ function renderLib(): void {
 }
 
 /* --------------------------- Test mode -------------------------------- */
+type PlayCtx = { source: 'forge' } | { source: 'shell'; cards: CommittedLevel[]; index: number };
 let mode: 'edit' | 'play' = 'edit';
-let session: PlaySession | null = null;
+let session: PlaySession | DriveSession | null = null;
+let playKind: 'slingshot' | 'drive' = 'slingshot';
+let playCtx: PlayCtx = { source: 'forge' };
 let lastStatus: 'playing' | 'won' | 'failed' = 'playing';
 
+function hideBanner(): void {
+  const b = $('banner');
+  b.style.display = 'none';
+  b.classList.remove('fail');
+  $('nextbtn').style.display = 'none';
+}
 function newSession(): void {
-  const banner = $('banner');
-  banner.style.display = 'none';
-  banner.classList.remove('fail');
+  hideBanner();
   lastStatus = 'playing';
   session?.destroy();
-  session = new PlaySession(level);
+  playKind = level.meta.mode === 'drive' ? 'drive' : 'slingshot';
+  session = playKind === 'drive' ? new DriveSession(level) : new PlaySession(level);
+  $('playhint').textContent = playKind === 'drive' ? 'steer with ◀ ▶ · ⤒ to jump · reach the 🏁 goal' : 'drag your hero back · release to launch';
+  $('drive').style.display = playKind === 'drive' ? 'flex' : 'none';
 }
-function startPlay(): void {
+function startPlay(ctx: PlayCtx = { source: 'forge' }): void {
+  playCtx = ctx;
   mode = 'play';
   selId = null;
   setArmed(null);
@@ -1251,6 +1351,7 @@ function startPlay(): void {
   $('b-play').textContent = '■';
   $('playhint').style.display = 'block';
   $('resetbtn').style.display = 'block';
+  $('backbtn').style.display = ctx.source === 'shell' ? 'block' : 'none';
   $('tray').style.display = 'none';
   $('inspector').style.display = 'none';
   $('nudge').style.display = 'none';
@@ -1261,12 +1362,13 @@ function stopPlay(): void {
   mode = 'edit';
   session?.destroy();
   session = null;
+  playCtx = { source: 'forge' };
   $('b-play').textContent = '▶';
   $('playhint').style.display = 'none';
   $('resetbtn').style.display = 'none';
-  const banner = $('banner');
-  banner.style.display = 'none';
-  banner.classList.remove('fail');
+  $('backbtn').style.display = 'none';
+  $('drive').style.display = 'none';
+  hideBanner();
   $('tray').style.display = 'flex';
   $('inspector').style.display = 'flex';
   setTimeout(resize, 80);
@@ -1276,34 +1378,193 @@ $('b-play').onclick = () => (mode === 'edit' ? startPlay() : stopPlay());
 $('resetbtn').onclick = () => {
   if (mode === 'play') newSession();
 };
+$('backbtn').onclick = () => {
+  if (mode === 'play') {
+    session?.destroy();
+    session = null;
+    mode = 'edit';
+  }
+  showShell();
+};
+$('nextbtn').onclick = () => {
+  if (playCtx.source !== 'shell') return;
+  const next = playCtx.index + 1;
+  if (next >= playCtx.cards.length) return;
+  playCtx.index = next;
+  loadCommittedIntoWorking(playCtx.cards[next].level);
+  newSession();
+};
+
+/* on-screen drive controls */
+const drivePressed = new Set<string>();
+function applyDriveDir(): void {
+  if (playKind !== 'drive' || !(session instanceof DriveSession)) return;
+  const dir = drivePressed.has('1') ? 1 : drivePressed.has('-1') ? -1 : 0;
+  session.setMove(dir);
+}
+for (const id of ['dv-left', 'dv-right']) {
+  const b = $(id);
+  const d = (b as HTMLElement).dataset.d!;
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    drivePressed.add(d);
+    applyDriveDir();
+  });
+  const release = (e: Event) => {
+    e.preventDefault();
+    drivePressed.delete(d);
+    applyDriveDir();
+  };
+  b.addEventListener('pointerup', release);
+  b.addEventListener('pointercancel', release);
+  b.addEventListener('pointerleave', release);
+}
+$('dv-jump').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (session instanceof DriveSession) session.jump();
+});
 
 function drawPlay(dt: number): void {
   if (!session) return;
   session.update(dt);
   drawWorldBase(false);
   session.render(ctx);
-  ctx.fillStyle = 'rgba(20,28,40,.65)';
-  ctx.fillRect(10, 12, 170, 30);
-  ctx.fillStyle = '#d8e2ef';
-  ctx.font = '16px ui-monospace,monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('villains: ' + session.targetsLeft, 20, 33);
+  if (playKind === 'slingshot' && session instanceof PlaySession) {
+    ctx.fillStyle = 'rgba(20,28,40,.65)';
+    ctx.fillRect(10, 12, 170, 30);
+    ctx.fillStyle = '#d8e2ef';
+    ctx.font = '16px ui-monospace,monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('villains: ' + session.targetsLeft, 20, 33);
+  }
   ctx.restore();
 
   if (session.status !== lastStatus) {
     lastStatus = session.status;
     const banner = $('banner');
     if (session.status === 'won') {
-      banner.textContent = 'LEVEL CLEAR';
+      banner.textContent = playKind === 'drive' ? 'GOAL! 🏁' : 'LEVEL CLEAR';
       banner.classList.remove('fail');
       banner.style.display = 'block';
+      if (playCtx.source === 'shell' && playCtx.index < playCtx.cards.length - 1) $('nextbtn').style.display = 'block';
     } else if (session.status === 'failed') {
-      banner.textContent = 'PROTECT FAILED';
+      banner.textContent = playKind === 'drive' ? 'OUCH — ↺ retry' : 'PROTECT FAILED';
       banner.classList.add('fail');
       banner.style.display = 'block';
     }
   }
 }
+
+/* ------------------------------ game shell ---------------------------- */
+function loadCommittedIntoWorking(l: Level): void {
+  level = JSON.parse(JSON.stringify(l));
+  idSeq = maxIdNum(level) + 1;
+  selId = null;
+  syncInspector();
+  syncHero();
+  syncBg();
+}
+function showForge(): void {
+  $('shell').classList.remove('on');
+  if (location.hash !== '#/forge') history.replaceState(null, '', '#/forge');
+  setTimeout(resize, 60);
+}
+function showShell(): void {
+  if (mode === 'play') stopPlay();
+  $('shell').classList.add('on');
+  if (location.hash !== '#/' && location.hash !== '') history.replaceState(null, '', '#/');
+  renderShell();
+}
+$('sh-forge').onclick = () => showForge();
+$('sh-hero').onclick = () => openEmoji('hero');
+
+function playCommitted(cards: CommittedLevel[], index: number): void {
+  loadCommittedIntoWorking(cards[index].level);
+  $('shell').classList.remove('on');
+  startPlay({ source: 'shell', cards, index });
+}
+
+function renderShell(): void {
+  $('sh-hero').textContent = prefHero;
+  const list = $('shell-list');
+  list.innerHTML = '';
+  const all = committedLevels();
+  if (!all.length) {
+    list.innerHTML = '<div class="empty">No committed levels yet.<br />Open the Forge, build one, and commit it under <code>levels/&lt;scene&gt;/</code>.</div>';
+    return;
+  }
+  const scenes = new Map<string, CommittedLevel[]>();
+  for (const c of all) {
+    const key = c.scene || '(no scene)';
+    if (!scenes.has(key)) scenes.set(key, []);
+    scenes.get(key)!.push(c);
+  }
+  for (const [scene, cards] of scenes) {
+    const wrap = document.createElement('div');
+    wrap.className = 'scene';
+    wrap.innerHTML = `<h3>${scene.toUpperCase()}</h3>`;
+    const row = document.createElement('div');
+    row.className = 'cards';
+    cards.forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'card shell-card';
+      const th = document.createElement('canvas');
+      th.width = 300;
+      th.height = 169;
+      card.appendChild(th);
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      nm.textContent = c.name;
+      card.appendChild(nm);
+      const badge = document.createElement('div');
+      badge.className = 'badge';
+      badge.textContent = c.level.meta.mode === 'drive' ? '🏁 drive' : '🎯 fling';
+      card.appendChild(badge);
+      const edit = document.createElement('button');
+      edit.className = 'edit';
+      edit.textContent = '✎ edit';
+      edit.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        loadCommittedIntoWorking(c.level);
+        showForge();
+      });
+      card.appendChild(edit);
+      try {
+        renderThumb(th, c.level);
+      } catch {
+        /* ignore */
+      }
+      card.addEventListener('click', () => playCommitted(cards, i));
+      row.appendChild(card);
+    });
+    wrap.appendChild(row);
+    list.appendChild(wrap);
+  }
+}
+
+/* ------------------------------ router -------------------------------- */
+function route(): void {
+  const h = location.hash;
+  const play = h.match(/^#\/play\/([^/]+)\/(.+)$/);
+  if (play) {
+    const scene = decodeURIComponent(play[1]);
+    const name = decodeURIComponent(play[2]);
+    const all = committedLevels();
+    const cards = all.filter((c) => (c.scene || '(no scene)') === scene);
+    const idx = cards.findIndex((c) => c.name === name);
+    if (idx >= 0) {
+      $('shell').classList.remove('on');
+      playCommitted(cards, idx);
+      return;
+    }
+  }
+  if (h === '#/forge') {
+    showForge();
+    return;
+  }
+  showShell();
+}
+window.addEventListener('hashchange', route);
 
 /* ---------------------------- main loop ------------------------------- */
 let last = performance.now();
@@ -1342,4 +1603,5 @@ syncInspector();
 syncHero();
 syncSettings();
 syncBg();
+route();
 requestAnimationFrame(frame);

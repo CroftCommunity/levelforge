@@ -38,7 +38,7 @@ npm run lint       # eslint
 ```
 index.html            app shell (markup + CSS)
 src/
-  schema.ts           types, strict validation, forward migration (0.2 -> 0.7)
+  schema.ts           types, strict validation, forward migration (0.2 -> 0.8)
   materials.ts        the material table (all physics lives here)
   store.ts            localStorage drafts + working-level autosave + download
   levels-manifest.ts  committed levels bundled at build time
@@ -46,31 +46,49 @@ src/
     geometry.ts       pure geometry + magnet/grid snapping + blob hit math
     backdrops.ts      six procedural scenes, custom image, agent brief
     render.ts         procedural per-material canvas rendering (incl. blobs)
+    emoji-data.ts     bundled emoji keyword DB for offline picker search
   play/
+    bodies.ts         one Matter body per object (shared by both runtimes)
     break-model.ts    the breakage math (unit-tested)
-    world.ts          Matter world build, melt, movers, hero slingshot, win/fail
-  main.ts             DOM + canvas + gesture glue (the forge)
+    behaviors.ts      per-emoji hit behaviors (💣 explode)
+    world.ts          slingshot Test: build, melt, movers, hero, explode, win/fail
+    drive.ts          drive mode (Red Ball): a steerable hero + goal zone
+  main.ts             DOM + canvas + gesture glue: forge, game shell, router
 levels/<scene>/*.json committed shared library (Claude can author these)
 public/               manifest, service worker, icons
 test/                 Vitest suites
 scripts/gen-icons.mjs regenerate the PWA PNG icons (no deps)
 ```
 
-## The schema (v0.7)
+## Screens & routing
+
+The app opens on a **level-select shell** (`#/`) grouped by scene; tapping a card
+plays it (`#/play/<scene>/<file>` deep-links straight into play), with retry / next
+/ back chrome. `✎ Forge` (`#/forge`) opens the editor on your working level.
+
+## Modes
+
+- **Slingshot** (default): fling `meta.hero` at villains (target-material emoji);
+  clear them all. 💣/🧨 explode on break and chain-detonate neighbours.
+- **Drive** (`meta.mode: "drive"`, Red Ball style): steer the hero with on-screen
+  ◀ ▶ / jump and reach the `meta.goal` 🏁 zone; target pieces are hazards.
+
+## The schema (v0.8)
 
 World is fixed at 1600 × 900 units, origin top-left, y down. Positions are object
 centres; angles are degrees, clockwise positive. `src/schema.ts` is the single
 source of truth — it validates strictly (types, ranges, unique ids, known enums)
-with human-readable errors, and migrates older versions forward. Shapes: `box`,
-`circle`, `tri`, `emoji`, and `blob` (a painted freeform stroke, physically a
-compound of overlapping circles). `meta.hero` is the flung emoji; `meta.background`
-selects scenery. The optional `group` / `role` / `sprite` / `hit` fields are
-v0.8-forward and round-trip untouched. Use the schema modal (`{ }`) in-app to
-copy/paste levels.
+with human-readable errors, and migrates older versions forward (renaming the
+legacy `weld` key to `group`). Shapes: `box`, `circle`, `tri`, `emoji`, and `blob`
+(a painted freeform stroke, physically a compound of overlapping circles).
+`meta.hero` is the hero emoji; `meta.background` selects scenery; `meta.mode` and
+`meta.goal` drive the game mode. Per-object `group` (weld), `role` (destroy /
+protect), `hit` (behavior key), and `sprite` are supported and round-trip. Use the
+schema modal (`{ }`) in-app to copy/paste levels.
 
 ## Levels library
 
 Anything under `levels/<scene>/<name>.json` is the committed, shared library. It is
-pulled into the bundle at build time, works offline, and shows up (read-only) in
-the in-app library alongside your local drafts. To add a level, drop a valid v0.7
+pulled into the bundle at build time, works offline, and powers both the shell and
+the in-app library (alongside your local drafts). To add a level, drop a valid v0.8
 JSON file into a scene folder — Claude can author these directly.
