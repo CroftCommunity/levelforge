@@ -204,6 +204,32 @@ describe('migration', () => {
   });
 });
 
+describe('validation — v0.8 mode/goal', () => {
+  it('defaults mode to slingshot and goal to null', () => {
+    const out = loadLevel(baseLevel([]));
+    expect(out.meta.mode).toBe('slingshot');
+    expect(out.meta.goal).toBeNull();
+  });
+  it('accepts drive mode with a goal', () => {
+    const out = loadLevel(baseLevel([], { mode: 'drive', goal: { x: 100, y: 200, r: 40 } }));
+    expect(out.meta.mode).toBe('drive');
+    expect(out.meta.goal).toEqual({ x: 100, y: 200, r: 40 });
+  });
+  it('coerces an unknown mode to slingshot', () => {
+    expect(loadLevel(baseLevel([], { mode: 'fly' })).meta.mode).toBe('slingshot');
+  });
+  it('rejects a goal with non-positive radius', () => {
+    expect(() => loadLevel(baseLevel([], { goal: { x: 1, y: 1, r: 0 } }))).toThrow(/goal\.r/);
+  });
+  it('migrates a 0.7 level to 0.8, filling mode', () => {
+    const l = baseLevel([]);
+    (l as any).schemaVersion = '0.7';
+    const out = validateLevel(migrateToCurrent(l));
+    expect(out.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(out.meta.mode).toBe('slingshot');
+  });
+});
+
 describe('maxIdNum', () => {
   it('finds the highest numeric id suffix', () => {
     const l = loadLevel(baseLevel([baseObject({ id: 'o3' }), baseObject({ id: 'o17' }), baseObject({ id: 'o2' })])) as Level;

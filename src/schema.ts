@@ -18,7 +18,7 @@
 
 import { MaterialKey, isMaterialKey } from './materials';
 
-export const CURRENT_SCHEMA_VERSION = '0.7';
+export const CURRENT_SCHEMA_VERSION = '0.8';
 
 export const WORLD = { w: 1600, h: 900 } as const;
 export const DEFAULT_FLOOR_Y = 860;
@@ -29,6 +29,9 @@ export const BRUSH_DEFAULT = 26;
 export type ShapeKind = 'box' | 'circle' | 'tri' | 'emoji' | 'blob';
 export type Role = 'destroy' | 'protect';
 export type BackgroundKind = 'grid' | 'grass' | 'cave' | 'desert' | 'night' | 'sky' | 'custom';
+/** v0.8: the game mode a level plays in. slingshot (default) or drive (Red Ball). */
+export type ModeKind = 'slingshot' | 'drive';
+export const MODES: ModeKind[] = ['slingshot', 'drive'];
 
 export const BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky', 'custom'];
 /** Procedural (non-custom) backgrounds — those that need no image. */
@@ -84,8 +87,12 @@ export interface LevelMeta {
   background: BackgroundKind;
   /** Prototype inline dataURL for a custom backdrop, or null. */
   backgroundImage: string | null;
-  /** v0.8-forward: backdrop image filename in the level folder. */
+  /** v0.8: backdrop image filename in the level folder. */
   backgroundSrc?: string | null;
+  /** v0.8: game mode. */
+  mode: ModeKind;
+  /** v0.8: drive-mode goal zone, or null. */
+  goal: GoalDef | null;
 }
 
 export interface WorldDef {
@@ -97,6 +104,13 @@ export interface WorldDef {
 export interface Slingshot {
   x: number;
   y: number;
+}
+
+/** v0.8: drive-mode goal zone — reach it to clear the level. */
+export interface GoalDef {
+  x: number;
+  y: number;
+  r: number;
 }
 
 export interface Level {
@@ -129,6 +143,8 @@ export function emptyLevel(): Level {
       hero: DEFAULT_HERO,
       background: 'grid',
       backgroundImage: null,
+      mode: 'slingshot',
+      goal: null,
     },
     world: { w: WORLD.w, h: WORLD.h, floorY: DEFAULT_FLOOR_Y },
     slingshot: { x: 230, y: DEFAULT_FLOOR_Y - 90 },
@@ -191,6 +207,8 @@ function normalizeToCurrent(l: Loose): Loose {
   if (l.meta.background === 'custom' && !l.meta.backgroundImage && !l.meta.backgroundSrc) {
     l.meta.background = 'grid';
   }
+  if (l.meta.mode !== 'drive') l.meta.mode = 'slingshot';
+  if (l.meta.goal === undefined) l.meta.goal = null;
   if (Array.isArray(l.objects)) {
     for (const o of l.objects) {
       if (!o || typeof o !== 'object') continue;
@@ -340,6 +358,14 @@ export function validateLevel(input: unknown): Level {
   const meta = l.meta ?? {};
   req(typeof meta === 'object', 'meta must be an object.');
   const background = BACKGROUNDS.includes(meta.background) ? (meta.background as BackgroundKind) : 'grid';
+  const mode: ModeKind = meta.mode === 'drive' ? 'drive' : 'slingshot';
+  let goal: GoalDef | null = null;
+  if (meta.goal != null) {
+    req(typeof meta.goal === 'object', 'meta.goal must be null or an object.');
+    req(isFiniteNum(meta.goal.x) && isFiniteNum(meta.goal.y), 'meta.goal needs finite x and y.');
+    req(isFiniteNum(meta.goal.r) && meta.goal.r > 0, 'meta.goal.r must be positive.');
+    goal = { x: meta.goal.x, y: meta.goal.y, r: meta.goal.r };
+  }
   const cleanMeta: LevelMeta = {
     name: typeof meta.name === 'string' ? meta.name : 'untitled',
     scene: typeof meta.scene === 'string' ? meta.scene : '',
@@ -348,6 +374,8 @@ export function validateLevel(input: unknown): Level {
     hero: typeof meta.hero === 'string' && meta.hero ? meta.hero : DEFAULT_HERO,
     background,
     backgroundImage: typeof meta.backgroundImage === 'string' ? meta.backgroundImage : null,
+    mode,
+    goal,
   };
   if (typeof meta.backgroundSrc === 'string' && meta.backgroundSrc) cleanMeta.backgroundSrc = meta.backgroundSrc;
 

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "0.8",
+  "meta": {
+    "name": "boom",
+    "scene": "arcade",
+    "gravity": 1,
+    "note": "Hit study. One well-aimed shot into the 💣 sets off a chain reaction — the blast shoves and detonates the other villains. 💣/🧨 in any material explode on break.",
+    "hero": "⚽",
+    "background": "night",
+    "backgroundImage": null,
+    "mode": "slingshot",
+    "goal": null
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 230, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "box", "x": 1120, "y": 820, "w": 40, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o2", "shape": "box", "x": 1280, "y": 820, "w": 40, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o3", "shape": "box", "x": 1200, "y": 765, "w": 200, "h": 26, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "shelf" },
+    { "id": "o4", "shape": "emoji", "x": 1200, "y": 730, "r": 28, "angle": 0, "material": "target", "emoji": "💣", "anchored": false, "path": null, "note": "shoot me — I detonate the rest" },
+    { "id": "o5", "shape": "emoji", "x": 1120, "y": 730, "r": 24, "angle": 0, "material": "target", "emoji": "👿", "anchored": false, "path": null, "note": "villain, caught in the blast" },
+    { "id": "o6", "shape": "emoji", "x": 1280, "y": 730, "r": 24, "angle": 0, "material": "target", "emoji": "😈", "anchored": false, "path": null, "note": "villain, caught in the blast" },
+    { "id": "o7", "shape": "emoji", "x": 1200, "y": 690, "r": 22, "angle": 0, "material": "target", "emoji": "🤡", "anchored": false, "path": null, "note": "villain on top" }
+  ]
+}
