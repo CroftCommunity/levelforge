@@ -49,6 +49,18 @@ export function pointInTri(px: number, py: number, v: Array<{ x: number; y: numb
   return !(neg && pos);
 }
 
+/** Distance from point (px,py) to segment (ax,ay)-(bx,by). Blob hit-testing. */
+export function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + dx * t;
+  const cy = ay + dy * t;
+  return Math.hypot(px - cx, py - cy);
+}
+
 /**
  * Axis-aligned half-extents for magnet snapping, or null when the shape can't
  * participate: triangles never snap, and boxes only snap when their angle is a
@@ -56,7 +68,8 @@ export function pointInTri(px: number, py: number, v: Array<{ x: number; y: numb
  */
 export function extents(o: GeomObject): Extents | null {
   if (o.shape === 'circle' || o.shape === 'emoji') return { hw: o.r ?? 0, hh: o.r ?? 0 };
-  if (o.shape === 'tri') return null;
+  // triangles and blobs never magnet-snap
+  if (o.shape === 'tri' || o.shape === 'blob') return null;
   const w = o.w ?? 0;
   const h = o.h ?? 0;
   const a = Math.round(o.angle ?? 0);

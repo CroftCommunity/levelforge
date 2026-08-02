@@ -3,13 +3,14 @@
 
    Physics exists only here (edit mode is a frozen god view). This module
    owns the engine, steps it, applies the break model, melts ice, drives
-   pathed movers, runs the slingshot, and tracks the win/fail state
-   (destroy vs protect target roles). It draws its own content in world
-   space; the caller supplies the view transform and board backdrop.
+   pathed movers, runs the hero slingshot, and tracks win/fail (destroy vs
+   protect target roles). Blobs build as compound circle bodies; grouped
+   pieces weld into one compound. Draws its own content in world space; the
+   caller supplies the view transform and backdrop.
    ===================================================================== */
 
 import Matter from 'matter-js';
-import { Level, LevelObject } from '../schema';
+import { Level, LevelObject, BRUSH_DEFAULT } from '../schema';
 import { MATERIALS } from '../materials';
 import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
 import { triVerts } from '../editor/geometry';
@@ -17,9 +18,9 @@ import { impactOf, breaksAt } from './break-model';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
 
-const SETTLE_MS = 500; // no breaking during the initial settle
-const MELT_K = 0.9985; // ice shrink per frame
-const MELT_MIN = 0.3; // remove ice below this fraction of original
+const SETTLE_MS = 500;
+const MELT_K = 0.9985;
+const MELT_MIN = 0.3;
 const BALL_R = 22;
 const BALL_DENSITY = 0.0016;
 const LAUNCH_FACTOR = 0.16;
@@ -29,7 +30,7 @@ const RELOAD_MS = 3800;
 export type PlayStatus = 'playing' | 'won' | 'failed';
 
 interface BodyPlugin {
-  lvlIds: string[]; // one for a solo body, many for a weld group
+  lvlIds: string[];
   breakAt: number | null;
   isIce: boolean;
   melt: number;
@@ -46,11 +47,8 @@ type CollisionHandler = (ev: Matter.IEventCollision<Matter.Engine>) => void;
 export class PlaySession {
   private level: Level;
   private engine: Matter.Engine;
-  /** Top-level bodies (solo or compound) — the units that break and melt. */
   private bodies: Matter.Body[] = [];
-  /** lvlId -> the body/part to read position+angle from when rendering. */
   private partOf = new Map<string, Matter.Body>();
-  /** lvlId -> the owning top-level body (for melt/broken bookkeeping). */
   private ownerOf = new Map<string, Matter.Body>();
   private movers: Mover[] = [];
   private broken = new Set<string>();
@@ -80,8 +78,6 @@ export class PlaySession {
     this.loadBall();
   }
 
-  /* --------------------------- world build --------------------------- */
-
   private makeBody(o: LevelObject): Matter.Body {
     const m = MATERIALS[o.material];
     const opts: Matter.IBodyDefinition = {
@@ -93,15 +89,26 @@ export class PlaySession {
     };
     if (o.shape === 'box') return Bodies.rectangle(o.x, o.y, o.w!, o.h!, opts);
     if (o.shape === 'tri') return Bodies.fromVertices(o.x, o.y, [triVerts({ w: o.w!, h: o.h! })], opts);
+    if (o.shape === 'blob') {
+      const r = o.brushR ?? BRUSH_DEFAULT;
+      const pts = o.pts ?? [];
+      const parts = pts.map(([rx, ry]) => Bodies.circle(o.x + rx, o.y + ry, r, { ...opts, isStatic: false }));
+      const b = parts.length === 1 ? parts[0] : Body.create({ parts });
+      Body.setPosition(b, { x: o.x, y: o.y });
+      if (o.angle) Body.setAngle(b, o.angle / DEG);
+      Body.setStatic(b, !!opts.isStatic);
+      return b;
+    }
     return Bodies.circle(o.x, o.y, o.r!, opts);
   }
 
   private buildBodies(): void {
-    // Group by weld id; ungrouped pieces are their own singleton group.
+    // Group by weld group; blobs are always solo (already compound), and
+    // ungrouped pieces are singleton groups.
     const groups = new Map<string, LevelObject[]>();
     let solo = 0;
     for (const o of this.level.objects) {
-      const key = o.weld ? `weld:${o.weld}` : `solo:${solo++}`;
+      const key = o.group && o.shape !== 'blob' ? `weld:${o.group}` : `solo:${solo++}`;
       const arr = groups.get(key);
       if (arr) arr.push(o);
       else groups.set(key, [o]);
@@ -113,8 +120,6 @@ export class PlaySession {
         top = this.makeBody(members[0]);
         this.partOf.set(members[0].id, top);
       } else {
-        // Weld: fuse parts into one compound body (v0.4). Parts must be
-        // dynamic before Body.create; each part stays readable for rendering.
         const parts = members.map((o) => {
           const b = this.makeBody(o);
           Body.setStatic(b, false);
@@ -130,10 +135,7 @@ export class PlaySession {
   }
 
   private pluginFor(members: LevelObject[]): BodyPlugin {
-    const breakAts = members.map((o) => MATERIALS[o.material].breakAt);
-    const numeric = breakAts.filter((v): v is number => v != null);
-    // A group breaks as a unit at its weakest member; unbreakable only if every
-    // member is unbreakable.
+    const numeric = members.map((o) => MATERIALS[o.material].breakAt).filter((v): v is number => v != null);
     const breakAt = numeric.length ? Math.min(...numeric) : null;
     return {
       lvlIds: members.map((o) => o.id),
@@ -155,7 +157,7 @@ export class PlaySession {
 
   private wireCollisions(): void {
     this.collisionHandler = (ev) => {
-      if (this.playT < SETTLE_MS) return; // settle grace: placed pieces land quietly
+      if (this.playT < SETTLE_MS) return; // settle grace
       for (const pair of ev.pairs) {
         const a = pair.bodyA;
         const b = pair.bodyB;
@@ -168,7 +170,6 @@ export class PlaySession {
   }
 
   private topFor(b: Matter.Body): Matter.Body {
-    // Collisions report parts; walk up to the owning top-level body.
     return b.parent && b.parent !== b ? b.parent : b;
   }
 
@@ -193,8 +194,6 @@ export class PlaySession {
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
   }
-
-  /* ---------------------------- slingshot ---------------------------- */
 
   private loadBall(): void {
     this.ball = Bodies.circle(this.level.slingshot.x, this.level.slingshot.y - 30, BALL_R, {
@@ -242,8 +241,6 @@ export class PlaySession {
     }, RELOAD_MS);
   }
 
-  /* ------------------------------ update ----------------------------- */
-
   update(dt: number): void {
     this.playT += dt;
     for (const mv of this.movers) {
@@ -268,9 +265,6 @@ export class PlaySession {
     Engine.update(this.engine, Math.min(dt, 33));
   }
 
-  /* ------------------------------ render ----------------------------- */
-
-  /** Draw the play content in world space (caller has set the view transform). */
   render(ctx: CanvasRenderingContext2D): void {
     drawSlingshotCtx(ctx, this.level.slingshot.x, this.level.slingshot.y, false);
 
@@ -278,8 +272,7 @@ export class PlaySession {
       if (this.broken.has(o.id)) continue;
       const part = this.partOf.get(o.id);
       if (!part) continue;
-      const owner = this.ownerOf.get(o.id)!;
-      const melt = (owner.plugin as BodyPlugin).melt;
+      const melt = (this.ownerOf.get(o.id)!.plugin as BodyPlugin).melt;
       drawMaterialCtx(ctx, { ...o, x: part.position.x, y: part.position.y, angle: part.angle * DEG, note: '' }, false, melt);
     }
 
@@ -303,7 +296,7 @@ export class PlaySession {
         ctx.stroke();
         const vx = (ax - bx) * LAUNCH_FACTOR;
         const vy = (ay - by) * LAUNCH_FACTOR;
-        ctx.fillStyle = 'rgba(255,138,61,.7)';
+        ctx.fillStyle = 'rgba(255,138,61,.75)';
         for (let i = 1; i <= 9; i++) {
           const t = i * 0.09;
           ctx.beginPath();
@@ -311,11 +304,12 @@ export class PlaySession {
           ctx.fill();
         }
       }
-      drawMaterialCtx(ctx, { shape: 'circle', x: bx, y: by, r: BALL_R, angle: this.ball.angle * DEG, material: 'rubber', note: '' }, false);
+      // hero: a round body skinned with meta.hero
+      drawMaterialCtx(ctx, { shape: 'emoji', x: bx, y: by, r: BALL_R, angle: this.ball.angle * DEG, material: 'rubber', emoji: this.level.meta.hero || '🙂', note: '' }, false);
     }
   }
 
-  /** Targets remaining to destroy (for the HUD). */
+  /** Villains (destroy-role targets) remaining, for the HUD. */
   get targetsLeft(): number {
     return Math.max(0, this.destroyLeft);
   }

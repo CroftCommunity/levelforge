@@ -1,21 +1,21 @@
 /* =====================================================================
    editor/render.ts — procedural per-material canvas rendering.
 
-   The texture IS the label: because each material draws distinctively, the
-   UI can stay icon-only. Ported from the prototype's drawMaterialCtx and
-   friends. These functions draw in WORLD coordinates; the caller sets up the
-   view transform. They are shared by the editor, Test mode, and thumbnails.
+   The texture IS the label: each material draws distinctively so the UI can
+   stay icon-only. Draws in WORLD coordinates; the caller sets the view
+   transform. Shared by the editor, Test mode, and thumbnails. The board
+   backdrop lives in backdrops.ts; this file draws pieces + slingshot.
    ===================================================================== */
 
 import { MATERIALS, MaterialKey } from '../materials';
-import { WORLD, DEFAULT_FLOOR_Y } from '../schema';
+import { WORLD, BRUSH_DEFAULT, BlobPoint } from '../schema';
 import { triVerts } from './geometry';
+import { drawBackdrop } from './backdrops';
 
 const DEG = 180 / Math.PI;
 
-/** Everything render needs from an object; a superset of LevelObject fields. */
 export interface RenderObject {
-  shape: 'box' | 'circle' | 'tri' | 'emoji';
+  shape: 'box' | 'circle' | 'tri' | 'emoji' | 'blob';
   x: number;
   y: number;
   w?: number;
@@ -24,6 +24,8 @@ export interface RenderObject {
   angle?: number;
   material: MaterialKey;
   emoji?: string;
+  pts?: BlobPoint[];
+  brushR?: number;
   anchored?: boolean;
   path?: unknown;
   note?: string;
@@ -118,27 +120,38 @@ export function drawMaterialCtx(
     c.closePath();
     c.fill();
     c.stroke();
-    c.save();
-    c.clip();
-    if (o.material === 'stone') {
-      c.fillStyle = 'rgba(0,0,0,.18)';
-      for (let i = 0; i < 8; i++) {
+  } else if (o.shape === 'blob') {
+    const r = (o.brushR ?? BRUSH_DEFAULT) * melt;
+    const pts = (o.pts ?? []).map(([px, py]) => [px * melt, py * melt] as [number, number]);
+    if (pts.length) {
+      for (const [lw, st] of [
+        [r * 2 + 5, 'rgba(0,0,0,.35)'],
+        [r * 2, m.color],
+      ] as Array<[number, string]>) {
+        c.strokeStyle = st;
+        c.lineWidth = lw;
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
         c.beginPath();
-        c.arc((hash(i * 3 + 1) - 0.5) * (o.w ?? 0) * 0.8, (hash(i * 3 + 2) - 0.3) * (o.h ?? 0) * 0.7, 1.5 + hash(i) * 2.5, 0, 7);
-        c.fill();
+        if (pts.length === 1) {
+          c.arc(pts[0][0], pts[0][1], lw / 2, 0, 7);
+          c.fillStyle = st;
+          c.fill();
+        } else {
+          c.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+          c.stroke();
+        }
       }
-    } else if (o.material === 'wood') {
-      c.strokeStyle = 'rgba(90,55,20,.45)';
-      c.lineWidth = 2;
-      for (let i = 1; i < 4; i++) {
-        const t = v[2].y + (v[0].y - v[2].y) * (i / 4);
-        c.beginPath();
-        c.moveTo(-(o.w ?? 0) / 2, t);
-        c.lineTo((o.w ?? 0) / 2, t);
-        c.stroke();
+      if (o.material === 'stone') {
+        c.fillStyle = 'rgba(0,0,0,.18)';
+        for (let i = 0; i < pts.length; i++) {
+          c.beginPath();
+          c.arc(pts[i][0] + (hash(i) - 0.5) * r, pts[i][1] + (hash(i + 3) - 0.5) * r, 1.5 + hash(i) * 2.5, 0, 7);
+          c.fill();
+        }
       }
     }
-    c.restore();
   } else if (o.shape === 'emoji') {
     const r = (o.r ?? 0) * melt;
     c.globalAlpha = ghost ? 0.45 : 0.25;
@@ -158,7 +171,7 @@ export function drawMaterialCtx(
     c.fill();
     c.stroke();
     if (o.material === 'target') {
-      // Protect-role targets wear a distinct (blue) face so the "hostage" reads.
+      // protect-role villains ("hostages") wear a blue, worried face
       const faceColor = o.role === 'protect' ? '#123a4a' : '#173a12';
       c.fillStyle = faceColor;
       c.beginPath();
@@ -170,12 +183,8 @@ export function drawMaterialCtx(
       c.strokeStyle = faceColor;
       c.lineWidth = 2.5;
       c.beginPath();
-      if (o.role === 'protect') {
-        // worried mouth (frown) for protect
-        c.arc(0, r * 0.45, r * 0.4, 1.25 * Math.PI, 1.75 * Math.PI);
-      } else {
-        c.arc(0, r * 0.15, r * 0.4, 0.25 * Math.PI, 0.75 * Math.PI);
-      }
+      if (o.role === 'protect') c.arc(0, r * 0.45, r * 0.4, 1.25 * Math.PI, 1.75 * Math.PI);
+      else c.arc(0, r * 0.15, r * 0.4, 0.25 * Math.PI, 0.75 * Math.PI);
       c.stroke();
     } else if (o.material === 'rubber') {
       c.fillStyle = 'rgba(255,255,255,.35)';
@@ -201,8 +210,8 @@ export function drawMaterialCtx(
   if (o.note) {
     c.globalAlpha = 1;
     c.fillStyle = '#ff8a3d';
-    const px = o.shape === 'box' ? (o.w ?? 0) / 2 : (o.r ?? (o.w ?? 0) / 2) * 0.8;
-    const py = o.shape === 'box' ? -(o.h ?? 0) / 2 : -(o.r ?? (o.h ?? 0) / 2) * 0.8;
+    const px = o.shape === 'box' ? (o.w ?? 0) / 2 : ((o.r ?? (o.w ?? 0) / 2) || 30) * 0.8;
+    const py = o.shape === 'box' ? -(o.h ?? 0) / 2 : -((o.r ?? (o.h ?? 0) / 2) || 30) * 0.8;
     c.beginPath();
     c.arc(px, py, 5, 0, 7);
     c.fill();
@@ -234,7 +243,7 @@ export function drawSlingshotCtx(
   c.lineTo(22, -26);
   c.stroke();
   if (label) {
-    c.fillStyle = 'rgba(125,142,163,.9)';
+    c.fillStyle = 'rgba(200,215,235,.9)';
     c.font = '15px ui-monospace,monospace';
     c.textAlign = 'center';
     c.fillText('launcher', 0, 118);
@@ -242,40 +251,11 @@ export function drawSlingshotCtx(
   c.restore();
 }
 
-export function drawBoardCtx(
-  c: CanvasRenderingContext2D,
-  floorY: number = DEFAULT_FLOOR_Y,
-): void {
-  c.fillStyle = '#101a27';
-  c.fillRect(0, 0, WORLD.w, WORLD.h);
-  c.strokeStyle = 'rgba(60,90,130,.16)';
-  c.lineWidth = 1;
-  for (let x = 0; x <= WORLD.w; x += 40) {
-    c.beginPath();
-    c.moveTo(x, 0);
-    c.lineTo(x, WORLD.h);
-    c.stroke();
-  }
-  for (let y = 0; y <= WORLD.h; y += 40) {
-    c.beginPath();
-    c.moveTo(0, y);
-    c.lineTo(WORLD.w, y);
-    c.stroke();
-  }
-  c.fillStyle = '#22314a';
-  c.fillRect(0, floorY, WORLD.w, WORLD.h - floorY);
-  c.strokeStyle = '#31486b';
-  c.lineWidth = 3;
-  c.beginPath();
-  c.moveTo(0, floorY);
-  c.lineTo(WORLD.w, floorY);
-  c.stroke();
-}
-
 /** Render a level small onto a thumbnail canvas (library cards). */
 export function renderThumb(
   canvasEl: HTMLCanvasElement,
   lvl: {
+    meta?: { background?: string; backgroundImage?: string | null; backgroundSrc?: string | null; hero?: string };
     world?: { floorY?: number };
     slingshot: { x: number; y: number };
     objects: RenderObject[];
@@ -285,7 +265,7 @@ export function renderThumb(
   if (!c) return;
   const s = canvasEl.width / WORLD.w;
   c.setTransform(s, 0, 0, s, 0, (canvasEl.height - WORLD.h * s) / 2);
-  drawBoardCtx(c, lvl.world?.floorY ?? DEFAULT_FLOOR_Y);
+  drawBackdrop(c, lvl, false);
   drawSlingshotCtx(c, lvl.slingshot.x, lvl.slingshot.y, false);
   for (const o of lvl.objects || []) drawMaterialCtx(c, { ...o, note: '' }, false);
 }

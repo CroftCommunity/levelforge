@@ -1,34 +1,31 @@
 /* =====================================================================
-   main.ts — the LevelForge editor application.
+   main.ts — the Emoji Wars forge (editor) application.
 
-   Ports the play-tested prototype (reference/levelforge.html) into the
-   typed, modular structure: schema/materials/geometry/render/store are the
-   reusable cores; this file is the DOM + canvas + gesture glue that the
-   prototype proved vanilla JS is enough for. Sections mirror the prototype:
-   view, undo/redo, drawing, gestures, tray, inspector, modals, library,
-   and Test-mode integration.
+   Ports the play-tested prototype (reference/levelforge.html, forge v0.11)
+   into the typed, modular structure: schema/materials/geometry/render/
+   backdrops/store are the reusable cores; this file is the DOM + canvas +
+   gesture glue. Sections mirror the reference: view, undo/redo, drawing,
+   gestures + paint, nudge pad, tray, topbar, emoji picker, settings,
+   backdrops, inspector, notes, schema modal, library, and Test mode.
    ===================================================================== */
 
 import {
   Level,
   LevelObject,
   ShapeKind,
+  BackgroundKind,
   emptyLevel,
   maxIdNum,
   serializeLevel,
   parseLevel,
-  DEFAULT_FLOOR_Y,
   WORLD,
+  DEFAULT_HERO,
+  BRUSH_DEFAULT,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
-import {
-  snapN,
-  triVerts,
-  pointInTri,
-  magnetSnap,
-  GeomObject,
-} from './editor/geometry';
-import { drawBoardCtx, drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
+import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, GeomObject } from './editor/geometry';
+import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
+import { drawBackdrop, AGENT_BRIEF } from './editor/backdrops';
 import {
   autosaveWorking,
   loadWorking,
@@ -42,6 +39,7 @@ import { committedLevels } from './levels-manifest';
 import { PlaySession } from './play/world';
 
 const MAXZOOM = 4;
+const BRUSH = BRUSH_DEFAULT;
 
 /* ---------------------------- shape presets --------------------------- */
 interface ShapePreset {
@@ -58,34 +56,82 @@ const SHAPES: ShapePreset[] = [
   { name: 'ball', shape: 'circle', r: 30 },
   { name: 'tri', shape: 'tri', w: 90, h: 70 },
   { name: 'emoji', shape: 'emoji', r: 30 },
+  { name: 'paint', shape: 'blob' },
 ];
-const EMOJI_PICKS = ['🎃', '💣', '⭐', '🦆', '🐟', '🌵', '🎁', '💎', '🪵', '🧱', '🍉', '🤖'];
+
+const EMOJI_PALETTE = [
+  '😀', '😎', '🥸', '🤠', '🥶', '🤡', '👻', '💀', '👽', '🤖', '👿', '😈',
+  '🎃', '🐶', '🐱', '🦊', '🐻', '🐼', '🐸', '🦆', '🐟', '🐙', '🦀', '🐢',
+  '🦖', '🐉', '🕷️', '🐝', '🌵', '🌲', '🍄', '🌸', '🍉', '🍕', '🍩', '🎂',
+  '⚽', '🏀', '🎳', '🎯', '🎲', '🧨', '💣', '🧱', '🪵', '🪨', '⭐', '🌙',
+  '☄️', '⚡', '🔥', '❄️', '💧', '🌈', '💎', '🔔', '🎁', '🏆', '🚗', '🚀',
+  '⚓', '🛸', '🎈', '🪁', '🧊', '🫧', '🥊', '🛡️', '⚔️', '🔮', '🧲', '💰',
+];
+
+/* ------------------------------ prefs --------------------------------- */
+interface Prefs {
+  afterPlace: 'adjust' | 'stamp';
+  hero: string;
+  recents: string[];
+}
+const PREFS_KEY = 'lf:prefs';
+function loadPrefs(): Prefs {
+  const fallback: Prefs = { afterPlace: 'adjust', hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
+  try {
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    if (!raw) return fallback;
+    const p = JSON.parse(raw);
+    return {
+      afterPlace: p.afterPlace === 'stamp' ? 'stamp' : 'adjust',
+      hero: typeof p.hero === 'string' && p.hero ? p.hero : DEFAULT_HERO,
+      recents: Array.isArray(p.recents) && p.recents.length ? p.recents.slice(0, 10) : fallback.recents,
+    };
+  } catch {
+    return fallback;
+  }
+}
+function savePrefs(): void {
+  try {
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, hero: prefHero, recents: emojiRecents }));
+  } catch {
+    /* ignore */
+  }
+}
+
+const prefs = loadPrefs();
+const settings = { afterPlace: prefs.afterPlace };
+let prefHero = prefs.hero;
+let emojiRecents = [...prefs.recents];
 let curEmoji = '🎃';
+let emojiFor: 'stamp' | 'hero' = 'stamp';
 
 let idSeq = 1;
 const nid = (): string => 'o' + idSeq++;
 let curMat: MaterialKey = 'wood';
 
 function demoObjects(): LevelObject[] {
-  const F = DEFAULT_FLOOR_Y;
+  const F = 860;
   return [
     { id: nid(), shape: 'box', x: 1100, y: F - 40, w: 30, h: 80, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
     { id: nid(), shape: 'box', x: 1240, y: F - 40, w: 30, h: 80, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
     { id: nid(), shape: 'box', x: 1170, y: F - 95, w: 220, h: 26, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'tri', x: 1000, y: F - 35, w: 90, h: 70, angle: 0, material: 'stone', anchored: true, path: null, note: 'deflector ramp' },
-    { id: nid(), shape: 'circle', x: 1170, y: F - 38, r: 24, angle: 0, material: 'target', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'emoji', x: 1170, y: F - 150, r: 26, angle: 0, material: 'wood', emoji: '🎃', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'box', x: 640, y: F - 260, w: 180, h: 22, angle: 0, material: 'metal', anchored: true, path: { x: 900, y: F - 260, speed: 90 }, note: 'moving platform, Red Ball style' },
+    { id: nid(), shape: 'blob', x: 960, y: F - 120, angle: 0, material: 'stone', anchored: true, path: null, brushR: 26, pts: [[-60, 110], [-40, 40], [-10, -30], [20, -90], [45, -110]], note: 'painted stone spire' },
+    { id: nid(), shape: 'emoji', x: 1170, y: F - 133, r: 26, angle: 0, material: 'target', emoji: '👿', anchored: false, path: null, note: 'villain on the roof' },
+    { id: nid(), shape: 'emoji', x: 1170, y: F - 38, r: 26, angle: 0, material: 'target', emoji: '🎃', anchored: false, path: null, note: 'villain in the house' },
+    { id: nid(), shape: 'box', x: 560, y: F - 260, w: 180, h: 22, angle: 0, material: 'metal', anchored: true, path: { x: 820, y: F - 260, speed: 90 }, note: 'moving platform' },
   ];
 }
 
-let level: Level = loadWorking() ?? emptyLevel();
+let level: Level = loadWorking() ?? withHero(emptyLevel());
 idSeq = maxIdNum(level) + 1;
 
-/* ------------------------------ DOM refs ------------------------------ */
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
-  document.getElementById(id) as T;
+function withHero(l: Level): Level {
+  l.meta.hero = prefHero;
+  return l;
+}
 
+/* ------------------------------ DOM refs ------------------------------ */
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const cv = $<HTMLCanvasElement>('cv');
 const ctx = cv.getContext('2d')!;
 
@@ -124,6 +170,8 @@ function afterHistory(): void {
   idSeq = Math.max(idSeq, maxIdNum(level) + 1);
   syncInspector();
   syncHistoryBtns();
+  syncHero();
+  syncBg();
   scheduleAutosave();
 }
 function syncHistoryBtns(): void {
@@ -184,32 +232,35 @@ const scr = (e: PointerEvent): { sx: number; sy: number } => {
 };
 
 /* ------------------------------ drawing ------------------------------- */
-function drawWorldBase(): void {
+function drawWorldBase(editGrid: boolean): void {
   ctx.clearRect(0, 0, cw, chh);
   ctx.fillStyle = '#0a0f16';
   ctx.fillRect(0, 0, cw, chh);
   ctx.save();
   ctx.translate(view.ox, view.oy);
   ctx.scale(view.scale, view.scale);
-  drawBoardCtx(ctx, level.world.floorY);
+  drawBackdrop(ctx, level, editGrid);
 }
 
 function drawEdit(): void {
-  drawWorldBase();
+  drawWorldBase(true);
   drawSlingshotCtx(ctx, level.slingshot.x, level.slingshot.y, true);
-  if (level.objects.length === 0) {
-    ctx.fillStyle = 'rgba(125,142,163,.8)';
+  // ghost hero at the launcher
+  drawMaterialCtx(ctx, { shape: 'emoji', x: level.slingshot.x, y: level.slingshot.y - 30, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+
+  if (level.objects.length === 0 && !(gesture && gesture.kind === 'paint')) {
+    ctx.fillStyle = 'rgba(200,212,228,.85)';
     ctx.font = '30px ui-monospace,monospace';
     ctx.textAlign = 'center';
     ctx.fillText(
-      armed ? 'tap the board to stamp' : 'arm a shape, then tap the board',
+      armed ? (armed.shape === 'blob' ? 'drag to paint' : 'tap the board to stamp') : 'arm a shape, then tap the board · 💡 explains everything',
       WORLD.w / 2,
       WORLD.h * 0.42,
     );
   }
   for (const o of level.objects) {
     if (o.path) {
-      ctx.strokeStyle = 'rgba(120,170,230,.6)';
+      ctx.strokeStyle = 'rgba(120,170,230,.7)';
       ctx.setLineDash([8, 8]);
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -229,16 +280,21 @@ function drawEdit(): void {
     }
     drawMaterialCtx(ctx, o, false);
   }
+  // live paint preview
+  if (gesture && gesture.kind === 'paint' && gesture.pts.length) {
+    drawMaterialCtx(ctx, { shape: 'blob', x: 0, y: 0, angle: 0, material: curMat, brushR: BRUSH, pts: gesture.pts.map((p) => [p.x, p.y] as [number, number]) }, true);
+  }
   const sel = selected();
   if (sel) {
     ctx.save();
     ctx.translate(sel.x, sel.y);
     ctx.rotate((sel.angle || 0) / DEG);
     ctx.strokeStyle = '#ff8a3d';
-    ctx.lineWidth = 2.5 / view.zoom;
     ctx.setLineDash([6, 5]);
-    if (sel.shape === 'box') ctx.strokeRect(-sel.w! / 2 - 6, -sel.h! / 2 - 6, sel.w! + 12, sel.h! + 12);
-    else if (sel.shape === 'tri') {
+    ctx.lineWidth = 2.5 / view.zoom;
+    if (sel.shape === 'box') {
+      ctx.strokeRect(-sel.w! / 2 - 6, -sel.h! / 2 - 6, sel.w! + 12, sel.h! + 12);
+    } else if (sel.shape === 'tri') {
       const v = triVerts({ w: sel.w!, h: sel.h! });
       ctx.beginPath();
       ctx.moveTo(v[0].x, v[0].y);
@@ -246,6 +302,18 @@ function drawEdit(): void {
       ctx.lineTo(v[2].x, v[2].y);
       ctx.closePath();
       ctx.stroke();
+    } else if (sel.shape === 'blob') {
+      ctx.lineWidth = (sel.brushR ?? BRUSH) * 2 + 12;
+      ctx.globalAlpha = 0.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const pts = sel.pts!;
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      if (pts.length === 1) ctx.lineTo(pts[0][0] + 0.1, pts[0][1]);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     } else {
       ctx.beginPath();
       ctx.arc(0, 0, sel.r! + 7, 0, 7);
@@ -277,6 +345,7 @@ type Gesture =
   | { kind: 'vpan'; last: { sx: number; sy: number } }
   | { kind: 'pinch'; d0: number; a0: number; o: LevelObject }
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
+  | { kind: 'paint'; pts: { x: number; y: number }[] }
   | { kind: 'path' }
   | { kind: 'sling' };
 
@@ -300,6 +369,16 @@ function hitObject(p: { x: number; y: number }): LevelObject | null {
       if (Math.abs(lx) <= o.w! / 2 + pad && Math.abs(ly) <= o.h! / 2 + pad) return o;
     } else if (o.shape === 'tri') {
       if (pointInTri(lx, ly, triVerts({ w: o.w! + pad * 2, h: o.h! + pad * 2 }))) return o;
+    } else if (o.shape === 'blob') {
+      const r = (o.brushR ?? BRUSH) + pad;
+      const pts = o.pts!;
+      if (pts.length === 1) {
+        if (Math.hypot(lx - pts[0][0], ly - pts[0][1]) <= r) return o;
+      } else {
+        for (let j = 0; j < pts.length - 1; j++) {
+          if (distToSeg(lx, ly, pts[j][0], pts[j][1], pts[j + 1][0], pts[j + 1][1]) <= r) return o;
+        }
+      }
     } else {
       if (lx * lx + ly * ly <= (o.r! + pad) * (o.r! + pad)) return o;
     }
@@ -309,31 +388,17 @@ function hitObject(p: { x: number; y: number }): LevelObject | null {
 const near = (p: { x: number; y: number }, x: number, y: number, r: number): boolean =>
   (p.x - x) ** 2 + (p.y - y) ** 2 <= r * r;
 
-/** Apply magnet snapping to a live object, returning which axes were captured. */
 function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
-  const res = magnetSnap(sel as GeomObject, level.objects as GeomObject[], {
-    zoom: view.zoom,
-    floorY: level.world.floorY,
-  });
+  const res = magnetSnap(sel as GeomObject, level.objects as GeomObject[], { zoom: view.zoom, floorY: level.world.floorY });
   sel.x = res.x;
   sel.y = res.y;
   return { sx: res.snappedX, sy: res.snappedY };
 }
 
-function placeArmed(p: { x: number; y: number }): void {
+function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number }): void {
   snap();
   const pr = armed!;
-  const o: LevelObject = {
-    id: nid(),
-    shape: pr.shape,
-    x: p.x,
-    y: p.y,
-    angle: 0,
-    material: curMat,
-    anchored: false,
-    path: null,
-    note: '',
-  };
+  const o: LevelObject = { id: nid(), shape: pr.shape, x: p.x, y: p.y, angle: 0, material: curMat, anchored: false, path: null, note: '' };
   if (pr.shape === 'box') {
     o.w = pr.rotatable && armedRot ? pr.h : pr.w;
     o.h = pr.rotatable && armedRot ? pr.w : pr.h;
@@ -349,6 +414,40 @@ function placeArmed(p: { x: number; y: number }): void {
   if (!m.sy) o.y = snapN(o.y);
   level.objects.push(o);
   selId = o.id;
+  if (settings.afterPlace === 'adjust') {
+    setArmed(null, true);
+    gesture = { kind: 'move', dx: o.x - p.x, dy: o.y - p.y, s0: sp, lifted: false };
+  }
+  syncInspector();
+}
+
+function finishPaint(pts: { x: number; y: number }[]): void {
+  if (!pts.length) return;
+  snap();
+  let cxx = 0;
+  let cyy = 0;
+  for (const p of pts) {
+    cxx += p.x;
+    cyy += p.y;
+  }
+  cxx /= pts.length;
+  cyy /= pts.length;
+  const o: LevelObject = {
+    id: nid(),
+    shape: 'blob',
+    x: snapN(cxx),
+    y: snapN(cyy),
+    angle: 0,
+    material: curMat,
+    anchored: false,
+    path: null,
+    note: '',
+    brushR: BRUSH,
+    pts: pts.map((p) => [Math.round(p.x - cxx), Math.round(p.y - cyy)] as [number, number]),
+  };
+  level.objects.push(o);
+  selId = o.id;
+  if (settings.afterPlace === 'adjust') setArmed(null, true);
   syncInspector();
 }
 
@@ -367,14 +466,7 @@ cv.addEventListener('pointerdown', (e) => {
   if (handMode === 'view' && !armed) {
     if (spointers.size === 2) {
       const [a, b] = [...spointers.values()];
-      gesture = {
-        kind: 'vzoom',
-        d0: Math.hypot(a.sx - b.sx, a.sy - b.sy),
-        m0: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 },
-        z0: view.zoom,
-        ox0: view.ox,
-        oy0: view.oy,
-      };
+      gesture = { kind: 'vzoom', d0: Math.hypot(a.sx - b.sx, a.sy - b.sy), m0: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 }, z0: view.zoom, ox0: view.ox, oy0: view.oy };
     } else {
       const now = performance.now();
       if (now - lastTapT < 300) {
@@ -388,15 +480,15 @@ cv.addEventListener('pointerdown', (e) => {
 
   if (pointers.size === 2 && selected() && gesture && (gesture.kind === 'move' || gesture.kind === 'pinch')) {
     const [a, b] = [...pointers.values()];
-    gesture = {
-      kind: 'pinch',
-      d0: Math.hypot(a.x - b.x, a.y - b.y),
-      a0: Math.atan2(b.y - a.y, b.x - a.x),
-      o: { ...selected()! },
-    };
+    gesture = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), a0: Math.atan2(b.y - a.y, b.x - a.x), o: JSON.parse(JSON.stringify(selected())) };
     return;
   }
   if (pointers.size > 1) return;
+
+  if (armed && armed.shape === 'blob') {
+    gesture = { kind: 'paint', pts: [p] };
+    return;
+  }
 
   const sel = selected();
   if (sel && sel.path && near(p, sel.path.x, sel.path.y, 30 / view.zoom + 6)) {
@@ -420,7 +512,7 @@ cv.addEventListener('pointerdown', (e) => {
     return;
   }
   if (armed) {
-    placeArmed(p);
+    placeArmed(p, sp);
     return;
   }
   selId = null;
@@ -441,7 +533,10 @@ cv.addEventListener('pointermove', (e) => {
   if (!gesture) return;
   const sel = selected();
 
-  if (gesture.kind === 'vpan') {
+  if (gesture.kind === 'paint') {
+    const last = gesture.pts[gesture.pts.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) > BRUSH * 0.6 && gesture.pts.length < 70) gesture.pts.push(p);
+  } else if (gesture.kind === 'vpan') {
     view.ox += sp.sx - prevS.sx;
     view.oy += sp.sy - prevS.sy;
     clampView();
@@ -464,6 +559,9 @@ cv.addEventListener('pointermove', (e) => {
     if (sel.shape === 'box' || sel.shape === 'tri') {
       sel.w = Math.max(24, gesture.o.w! * k);
       sel.h = Math.max(24, gesture.o.h! * k);
+    } else if (sel.shape === 'blob') {
+      sel.brushR = Math.max(10, (gesture.o.brushR ?? BRUSH) * k);
+      sel.pts = gesture.o.pts!.map(([px, py]) => [px * k, py * k] as [number, number]);
     } else {
       sel.r = Math.max(14, gesture.o.r! * k);
     }
@@ -472,7 +570,7 @@ cv.addEventListener('pointermove', (e) => {
     if (!gesture.lifted) {
       const ds = Math.hypot(sp.sx - gesture.s0.sx, sp.sy - gesture.s0.sy);
       if (ds > 10 && e.pointerType !== 'mouse') {
-        gesture.dy -= 80 / view.zoom; // lift above the fingertip
+        gesture.dy -= 80 / view.zoom;
         gesture.lifted = true;
       } else if (ds > 10) gesture.lifted = true;
     }
@@ -498,6 +596,7 @@ function endPointer(e: PointerEvent): void {
   if (pointers.size > 0) return;
   const sel = selected();
   if (gesture) {
+    if (gesture.kind === 'paint') finishPaint(gesture.pts);
     if (gesture.kind === 'move' && sel) {
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
@@ -507,7 +606,9 @@ function endPointer(e: PointerEvent): void {
       if (sel.shape === 'box' || sel.shape === 'tri') {
         sel.w = snapN(sel.w!);
         sel.h = snapN(sel.h!);
-      } else sel.r = snapN(sel.r!);
+      } else if (sel.shape !== 'blob') {
+        sel.r = snapN(sel.r!);
+      }
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
       if (!m.sy) sel.y = snapN(sel.y);
@@ -528,12 +629,55 @@ function endPointer(e: PointerEvent): void {
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
 
-/* ------------------- tray: ✋ / 🔍 + shape presets -------------------- */
+/* ---------------------------- nudge pad ------------------------------- */
+let nudgeLast = { id: '', t: 0 };
+document.querySelectorAll<HTMLButtonElement>('#nudge button[data-n]').forEach((b) => {
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const s = selected();
+    if (!s || mode !== 'edit') return;
+    const [dx, dy] = b.dataset.n!.split(',').map(Number);
+    const now = performance.now();
+    if (!(nudgeLast.id === s.id && now - nudgeLast.t < 1500)) snap();
+    nudgeLast = { id: s.id, t: now };
+    s.x += dx * SNAP;
+    s.y += dy * SNAP;
+    syncReadout();
+    scheduleAutosave();
+  });
+});
+function syncNudge(): void {
+  const s = selected();
+  const el = $('nudge');
+  if (!s || mode !== 'edit') {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'grid';
+  // manifest in the corner diagonally opposite the piece so it never covers it
+  const sx = s.x * view.scale + view.ox;
+  const sy = s.y * view.scale + view.oy;
+  if (sx > cw / 2) {
+    el.style.left = '10px';
+    el.style.right = 'auto';
+  } else {
+    el.style.right = '10px';
+    el.style.left = 'auto';
+  }
+  if (sy > chh / 2) {
+    el.style.top = '10px';
+    el.style.bottom = 'auto';
+  } else {
+    el.style.bottom = '10px';
+    el.style.top = 'auto';
+  }
+}
+
+/* ------------------------------ tray ---------------------------------- */
 const tray = $('tray');
 const trayEls: Array<{ el: HTMLElement; pr: ShapePreset }> = [];
 
-const handrow = document.createElement('div');
-handrow.id = 'handrow';
 const adjEl = document.createElement('div');
 adjEl.className = 'preset on';
 adjEl.innerHTML = '<span class="ico">✋</span>adjust';
@@ -541,22 +685,7 @@ adjEl.addEventListener('click', () => {
   handMode = 'adjust';
   setArmed(null);
 });
-const viewEl = document.createElement('div');
-viewEl.className = 'preset';
-viewEl.innerHTML = '<span class="ico">🔍</span>view';
-viewEl.addEventListener('click', () => {
-  handMode = 'view';
-  setArmed(null);
-});
-handrow.appendChild(adjEl);
-handrow.appendChild(viewEl);
-tray.appendChild(handrow);
-
-function syncHand(): void {
-  adjEl.classList.toggle('on', !armed && handMode === 'adjust');
-  viewEl.classList.remove('on');
-  viewEl.classList.toggle('viewon', !armed && handMode === 'view');
-}
+tray.appendChild(adjEl);
 
 for (const pr of SHAPES) {
   const el = document.createElement('div');
@@ -564,13 +693,8 @@ for (const pr of SHAPES) {
   el.innerHTML = `<span class="ico"></span>${pr.name}`;
   el.addEventListener('click', () => {
     if (mode === 'play') return;
-    if (armed === pr && pr.rotatable) {
-      armedRot = !armedRot;
-      drawIco();
-      return;
-    }
     if (armed === pr && pr.shape === 'emoji') {
-      openEmoji();
+      openEmoji('stamp');
       return;
     }
     if (armed === pr) {
@@ -578,13 +702,11 @@ for (const pr of SHAPES) {
       return;
     }
     armedRot = false;
-    if (pr.shape === 'emoji' && !curEmoji) openEmoji();
     setArmed(pr);
   });
   trayEls.push({ el, pr });
   tray.appendChild(el);
 }
-
 function drawIco(): void {
   const col = MATERIALS[curMat].color;
   for (const { el, pr } of trayEls) {
@@ -600,56 +722,196 @@ function drawIco(): void {
       ico.innerHTML = `<span class="shp" style="width:0;height:0;border:none;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:19px solid ${col}"></span>`;
     } else if (pr.shape === 'emoji') {
       ico.textContent = curEmoji;
+    } else if (pr.shape === 'blob') {
+      ico.textContent = '🖌';
     } else {
       ico.innerHTML = `<span class="shp" style="width:20px;height:20px;border-radius:50%;background:${col}"></span>`;
     }
   }
 }
-function setArmed(pr: ShapePreset | null): void {
+function setArmed(pr: ShapePreset | null, _keepSel?: boolean): void {
   armed = pr;
   if (!armed) armedRot = false;
   trayEls.forEach((x) => x.el.classList.toggle('on', x.pr === armed));
-  if (armed) selId = null;
-  syncHand();
+  if (armed) {
+    selId = null;
+    handMode = 'adjust';
+  }
+  adjEl.classList.toggle('on', !armed && handMode === 'adjust');
+  syncViewBtn();
   drawIco();
   syncInspector();
 }
-drawIco();
-syncHand();
+
+/* --------------------- topbar rotate / view --------------------------- */
+function rotateSelected(): boolean {
+  const s = selected();
+  if (s) {
+    snap();
+    s.angle = ((s.angle || 0) + 90) % 360;
+    syncInspector();
+    return true;
+  }
+  return false;
+}
+$('b-rot').onclick = () => {
+  if (mode === 'play') return;
+  if (rotateSelected()) return;
+  if (armed && armed.rotatable) {
+    armedRot = !armedRot;
+    drawIco();
+  }
+};
+$('b-view').onclick = () => {
+  if (mode === 'play') return;
+  if (armed) setArmed(null);
+  handMode = handMode === 'view' ? 'adjust' : 'view';
+  adjEl.classList.toggle('on', !armed && handMode === 'adjust');
+  syncViewBtn();
+};
+function syncViewBtn(): void {
+  $('b-view').classList.toggle('viewon', handMode === 'view' && !armed);
+}
 
 /* --------------------------- emoji picker ----------------------------- */
-const epicks = $('epicks');
-for (const em of EMOJI_PICKS) {
-  const b = document.createElement('button');
-  b.textContent = em;
-  b.addEventListener('click', () => {
+function renderEmojiPicker(): void {
+  const rec = $('erecents');
+  rec.innerHTML = '';
+  for (const em of emojiRecents) {
+    const b = document.createElement('button');
+    b.textContent = em;
+    b.addEventListener('click', () => pickEmoji(em));
+    rec.appendChild(b);
+  }
+  const pal = $('epicks');
+  if (!pal.childElementCount) {
+    for (const em of EMOJI_PALETTE) {
+      const b = document.createElement('button');
+      b.textContent = em;
+      b.addEventListener('click', () => pickEmoji(em));
+      pal.appendChild(b);
+    }
+  }
+}
+function openEmoji(mode2: 'stamp' | 'hero'): void {
+  emojiFor = mode2;
+  $('etitle').textContent =
+    mode2 === 'hero'
+      ? 'PICK YOUR HERO — the emoji you fling at the villains.'
+      : 'EMOJI STAMP — a round physics body in the current material. Stamp villains with target material.';
+  $<HTMLInputElement>('einput').value = '';
+  renderEmojiPicker();
+  $('emodal').style.display = 'flex';
+}
+function pickEmoji(em: string): void {
+  emojiRecents = [em, ...emojiRecents.filter((x) => x !== em)].slice(0, 10);
+  if (emojiFor === 'hero') {
+    snap();
+    level.meta.hero = em;
+    prefHero = em;
+    syncHero();
+  } else {
     curEmoji = em;
     drawIco();
-    $('emodal').style.display = 'none';
-  });
-  epicks.appendChild(b);
-}
-function openEmoji(): void {
-  $<HTMLInputElement>('einput').value = '';
-  $('emodal').style.display = 'flex';
+  }
+  savePrefs();
+  $('emodal').style.display = 'none';
 }
 $('e-set').onclick = () => {
   const v = $<HTMLInputElement>('einput').value.trim();
-  if (v) curEmoji = [...v][0] ? v : curEmoji;
-  drawIco();
-  $('emodal').style.display = 'none';
+  if (v) pickEmoji(v);
+  else $('emodal').style.display = 'none';
 };
 $('e-close').onclick = () => ($('emodal').style.display = 'none');
+function syncHero(): void {
+  $('herobtn').textContent = level.meta.hero || DEFAULT_HERO;
+}
+
+/* --------------------------- help & settings -------------------------- */
+$('b-help').onclick = () => ($('hmodal').style.display = 'flex');
+$('h-close').onclick = () => ($('hmodal').style.display = 'none');
+$('b-set').onclick = () => {
+  syncSettings();
+  $('smodal').style.display = 'flex';
+};
+$('s-close').onclick = () => ($('smodal').style.display = 'none');
+$('set-after').onclick = () => {
+  settings.afterPlace = settings.afterPlace === 'adjust' ? 'stamp' : 'adjust';
+  savePrefs();
+  syncSettings();
+};
+function syncSettings(): void {
+  $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
+  syncHero();
+}
+$('herobtn').onclick = () => {
+  $('smodal').style.display = 'none';
+  openEmoji('hero');
+};
+
+/* ------------------- backdrops: picker, upload, brief ----------------- */
+document.querySelectorAll<HTMLElement>('.bgw[data-bg]').forEach((b) =>
+  b.addEventListener('click', () => {
+    const bg = b.dataset.bg as BackgroundKind;
+    if (bg === 'custom' && !level.meta.backgroundImage) return;
+    if (level.meta.background === bg) return;
+    snap();
+    level.meta.background = bg;
+    syncBg();
+  }),
+);
+function syncBg(): void {
+  const cur = level.meta.background || 'grid';
+  document.querySelectorAll<HTMLElement>('.bgw[data-bg]').forEach((b) => b.classList.toggle('on', b.dataset.bg === cur));
+  const cs = $('bg-custom');
+  if (level.meta.backgroundImage) {
+    cs.style.display = 'inline-block';
+    cs.style.backgroundImage = `url(${level.meta.backgroundImage})`;
+  } else {
+    cs.style.display = 'none';
+  }
+}
+$('bg-upload').onclick = () => $<HTMLInputElement>('bg-file').click();
+$<HTMLInputElement>('bg-file').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const url = String(rd.result);
+    snap();
+    level.meta.backgroundImage = url;
+    level.meta.background = 'custom';
+    syncBg();
+    toast(url.length > 2500000 ? 'backdrop imported — heads up: it makes the schema JSON heavy' : 'backdrop imported');
+  };
+  rd.onerror = () => toast('could not read that image');
+  rd.readAsDataURL(f);
+});
+$('bg-brief').onclick = () => {
+  $<HTMLTextAreaElement>('brieftext').value = AGENT_BRIEF;
+  $('bmodal').style.display = 'flex';
+};
+$('br-close').onclick = () => ($('bmodal').style.display = 'none');
+$('br-copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($<HTMLTextAreaElement>('brieftext').value);
+    toast('brief copied — add your style notes');
+  } catch {
+    $<HTMLTextAreaElement>('brieftext').select();
+    document.execCommand('copy');
+    toast('brief copied — add your style notes');
+  }
+};
 
 /* ----------------------------- inspector ------------------------------ */
 function syncInspector(): void {
   const sel = selected();
   $('selwrap').style.display = sel ? 'block' : 'none';
-  $('hint').style.display = sel ? 'none' : 'block';
   const shown = sel ? sel.material : curMat;
-  document
-    .querySelectorAll<HTMLElement>('.swwrap[data-m]')
-    .forEach((c) => c.classList.toggle('on', c.dataset.m === shown));
+  document.querySelectorAll<HTMLElement>('.swwrap[data-m]').forEach((c) => c.classList.toggle('on', c.dataset.m === shown));
+  syncNudge();
   if (!sel) return;
   $('tg-anchor').classList.toggle('on', !!sel.anchored);
   $('tg-move').classList.toggle('on', !!sel.path);
@@ -662,10 +924,10 @@ function syncInspector(): void {
 function syncReadout(): void {
   const sel = selected();
   if (!sel) return;
-  const size =
-    sel.shape === 'box' || sel.shape === 'tri'
-      ? `${Math.round(sel.w!)}×${Math.round(sel.h!)}`
-      : `r${Math.round(sel.r!)}`;
+  let size: string;
+  if (sel.shape === 'box' || sel.shape === 'tri') size = `${Math.round(sel.w!)}×${Math.round(sel.h!)}`;
+  else if (sel.shape === 'blob') size = `~${sel.pts!.length}pt brush ${Math.round(sel.brushR ?? BRUSH)}`;
+  else size = `r${Math.round(sel.r!)}`;
   $('readout').textContent = `${Math.round(sel.x)},${Math.round(sel.y)} · ${size} · ${Math.round(sel.angle || 0)}°`;
 }
 document.querySelectorAll<HTMLElement>('.swwrap[data-m]').forEach((c) =>
@@ -676,12 +938,14 @@ document.querySelectorAll<HTMLElement>('.swwrap[data-m]').forEach((c) =>
     if (s) {
       snap();
       s.material = curMat;
-      // role only applies to targets; drop it when leaving target material
       if (s.material !== 'target') delete s.role;
     }
     syncInspector();
   }),
 );
+$('tg-rot').onclick = () => {
+  rotateSelected();
+};
 $('tg-anchor').onclick = () => {
   const s = selected();
   if (s) {
@@ -765,8 +1029,7 @@ $('n-mic').onclick = () => {
     recog.interimResults = false;
     recog.onresult = (ev: any) => {
       let add = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++)
-        if (ev.results[i].isFinal) add += ev.results[i][0].transcript + ' ';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) add += ev.results[i][0].transcript + ' ';
       if (add) {
         const t = $<HTMLTextAreaElement>('notetext');
         t.value = (t.value ? t.value.replace(/\s+$/, '') + ' ' : '') + add.trim();
@@ -817,6 +1080,8 @@ $('m-load').onclick = () => {
     idSeq = maxIdNum(level) + 1;
     selId = null;
     syncInspector();
+    syncHero();
+    syncBg();
     $('modal').style.display = 'none';
     toast('level loaded');
   } catch (err) {
@@ -825,20 +1090,30 @@ $('m-load').onclick = () => {
 };
 $('m-clear').onclick = () => {
   snap();
+  const { hero, background, backgroundImage } = level.meta;
   level = emptyLevel();
+  level.meta.hero = hero;
+  level.meta.background = background;
+  level.meta.backgroundImage = backgroundImage;
   idSeq = 1;
   selId = null;
   syncInspector();
+  syncBg();
   $<HTMLTextAreaElement>('json').value = serializeLevel(level);
   toast('cleared — undo brings it back');
 };
 $('m-demo').onclick = () => {
   snap();
+  const hero = level.meta.hero;
   level = emptyLevel();
-  level.meta.name = 'starter-tower';
+  level.meta.name = 'villain-house';
+  level.meta.hero = hero;
+  level.meta.background = 'grass';
   level.objects = demoObjects();
+  idSeq = maxIdNum(level) + 1;
   selId = null;
   syncInspector();
+  syncBg();
   $('modal').style.display = 'none';
   toast('demo loaded — hit ▶');
 };
@@ -853,13 +1128,12 @@ function toast(msg: string): void {
 }
 
 /* ------------------------------ library ------------------------------- */
-$('b-lib').onclick = async () => {
+$('b-lib').onclick = () => {
   $<HTMLInputElement>('sv-name').value = level.meta.name !== 'untitled' ? level.meta.name : '';
   $<HTMLInputElement>('sv-scene').value = level.meta.scene || '';
   $('lmodal').style.display = 'flex';
   renderLib();
-  if (!hasPersistentStore())
-    toast('no persistent storage here — saves last for this session only');
+  if (!hasPersistentStore()) toast('no persistent storage here — saves last for this session only');
 };
 $('l-close').onclick = () => ($('lmodal').style.display = 'none');
 $('sv-go').onclick = () => {
@@ -873,7 +1147,7 @@ $('sv-go').onclick = () => {
   if (saveDraft(name, level.meta.scene, level)) {
     toast('saved draft: ' + name);
     renderLib();
-  } else toast('save failed');
+  } else toast('save failed (custom backdrops can exceed storage limits)');
 };
 
 function loadIntoEditor(l: Level, label: string): void {
@@ -882,6 +1156,8 @@ function loadIntoEditor(l: Level, label: string): void {
   idSeq = maxIdNum(level) + 1;
   selId = null;
   syncInspector();
+  syncHero();
+  syncBg();
   $('lmodal').style.display = 'none';
   toast('loaded: ' + label);
 }
@@ -890,28 +1166,22 @@ interface SceneRow {
   scene: string;
   cards: Array<{ name: string; level: Level; committed: boolean }>;
 }
-
 function renderLib(): void {
   const list = $('lib-list');
   list.innerHTML = '';
-
   const scenes = new Map<string, SceneRow>();
   const ensure = (scene: string): SceneRow => {
     const key = scene || '(no scene)';
     if (!scenes.has(key)) scenes.set(key, { scene: key, cards: [] });
     return scenes.get(key)!;
   };
-
-  // Committed levels first (read-only), then local drafts (deletable, newest first).
   for (const c of committedLevels()) ensure(c.scene).cards.push({ name: c.name, level: c.level, committed: true });
   for (const d of listDrafts()) ensure(d.scene).cards.push({ name: d.name, level: d.level, committed: false });
 
   if (scenes.size === 0) {
-    list.innerHTML =
-      '<div style="color:var(--dim);font-size:12px">nothing here yet — name the current level above and Save, or commit levels under /levels/.</div>';
+    list.innerHTML = '<div style="color:var(--dim);font-size:12px">nothing here yet — name the current level above and Save, or commit levels under /levels/.</div>';
     return;
   }
-
   for (const row of scenes.values()) {
     const wrap = document.createElement('div');
     wrap.className = 'scene';
@@ -949,7 +1219,7 @@ function renderLib(): void {
       try {
         renderThumb(th, rec.level);
       } catch {
-        /* ignore thumbnail failures */
+        /* ignore */
       }
       card.addEventListener('click', () => loadIntoEditor(rec.level, rec.name));
       cards.appendChild(card);
@@ -964,6 +1234,14 @@ let mode: 'edit' | 'play' = 'edit';
 let session: PlaySession | null = null;
 let lastStatus: 'playing' | 'won' | 'failed' = 'playing';
 
+function newSession(): void {
+  const banner = $('banner');
+  banner.style.display = 'none';
+  banner.classList.remove('fail');
+  lastStatus = 'playing';
+  session?.destroy();
+  session = new PlaySession(level);
+}
 function startPlay(): void {
   mode = 'play';
   selId = null;
@@ -973,15 +1251,11 @@ function startPlay(): void {
   $('b-play').textContent = '■';
   $('playhint').style.display = 'block';
   $('resetbtn').style.display = 'block';
-  const banner = $('banner');
-  banner.style.display = 'none';
-  banner.classList.remove('fail');
   $('tray').style.display = 'none';
   $('inspector').style.display = 'none';
+  $('nudge').style.display = 'none';
   setTimeout(resize, 80);
-
-  lastStatus = 'playing';
-  session = new PlaySession(level);
+  newSession();
 }
 function stopPlay(): void {
   mode = 'edit';
@@ -996,27 +1270,24 @@ function stopPlay(): void {
   $('tray').style.display = 'flex';
   $('inspector').style.display = 'flex';
   setTimeout(resize, 80);
+  syncInspector();
 }
 $('b-play').onclick = () => (mode === 'edit' ? startPlay() : stopPlay());
 $('resetbtn').onclick = () => {
-  if (mode !== 'play') return;
-  session?.destroy();
-  const banner = $('banner');
-  banner.style.display = 'none';
-  banner.classList.remove('fail');
-  lastStatus = 'playing';
-  session = new PlaySession(level);
+  if (mode === 'play') newSession();
 };
 
 function drawPlay(dt: number): void {
   if (!session) return;
   session.update(dt);
-  drawWorldBase();
+  drawWorldBase(false);
   session.render(ctx);
-  ctx.fillStyle = '#7d8ea3';
+  ctx.fillStyle = 'rgba(20,28,40,.65)';
+  ctx.fillRect(10, 12, 170, 30);
+  ctx.fillStyle = '#d8e2ef';
   ctx.font = '16px ui-monospace,monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('targets: ' + session.targetsLeft, 20, 34);
+  ctx.fillText('villains: ' + session.targetsLeft, 20, 33);
   ctx.restore();
 
   if (session.status !== lastStatus) {
@@ -1063,7 +1334,12 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 }
 
 /* ------------------------------- boot --------------------------------- */
+drawIco();
+syncViewBtn();
 resize();
 syncHistoryBtns();
 syncInspector();
+syncHero();
+syncSettings();
+syncBg();
 requestAnimationFrame(frame);
