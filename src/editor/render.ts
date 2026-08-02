@@ -11,6 +11,7 @@ import { MATERIALS, MaterialKey } from '../materials';
 import { WORLD, BRUSH_DEFAULT, BlobPoint } from '../schema';
 import { triVerts } from './geometry';
 import { drawBackdrop } from './backdrops';
+import { getSpriteImg } from './sprites';
 
 const DEG = 180 / Math.PI;
 
@@ -24,6 +25,7 @@ export interface RenderObject {
   angle?: number;
   material: MaterialKey;
   emoji?: string;
+  sprite?: string;
   pts?: BlobPoint[];
   brushR?: number;
   anchored?: boolean;
@@ -154,15 +156,36 @@ export function drawMaterialCtx(
     }
   } else if (o.shape === 'emoji') {
     const r = (o.r ?? 0) * melt;
-    c.globalAlpha = ghost ? 0.45 : 0.25;
-    c.beginPath();
-    c.arc(0, 0, r, 0, 7);
-    c.fill();
-    c.globalAlpha = ghost ? 0.6 : 1;
-    c.font = r * 1.9 + 'px system-ui,sans-serif';
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillText(o.emoji || '🙂', 0, r * 0.08);
+    const sprite = o.sprite ? getSpriteImg(o.sprite) : null;
+    if (sprite) {
+      // custom image skin, clipped to the body's circle
+      c.save();
+      c.globalAlpha = ghost ? 0.6 : 1;
+      c.beginPath();
+      c.arc(0, 0, r, 0, 7);
+      c.clip();
+      const s = Math.max((r * 2) / sprite.width, (r * 2) / sprite.height);
+      const dw = sprite.width * s;
+      const dh = sprite.height * s;
+      c.drawImage(sprite, -dw / 2, -dh / 2, dw, dh);
+      c.restore();
+      c.globalAlpha = ghost ? 0.4 : 0.6;
+      c.strokeStyle = 'rgba(0,0,0,.3)';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(0, 0, r, 0, 7);
+      c.stroke();
+    } else {
+      c.globalAlpha = ghost ? 0.45 : 0.25;
+      c.beginPath();
+      c.arc(0, 0, r, 0, 7);
+      c.fill();
+      c.globalAlpha = ghost ? 0.6 : 1;
+      c.font = r * 1.9 + 'px system-ui,sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(o.emoji || '🙂', 0, r * 0.08);
+    }
   } else {
     // circle
     const r = (o.r ?? 0) * melt;
