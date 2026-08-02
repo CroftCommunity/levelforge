@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LEVELFORGE v0.6 · schema v0.3</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1722; --panel:#16212f; --line:#233348; --ink:#d8e2ef; --dim:#7d8ea3;
+    --accent:#ff8a3d; --accent-dn:#e06f24; --viewblue:#5aa2e6;
+    --wood:#b5824c; --stone:#8e939c; --metal:#a9b6c4; --ice:#9fd6ea; --rubber:#d94f5c; --target:#7bc86c;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; overflow:hidden; overscroll-behavior:none;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    display:flex; flex-direction:column;
+    position:fixed; inset:0; touch-action:none;
+  }
+  button{
+    font-family:inherit; font-size:13px; color:var(--ink);
+    background:#1d2c40; border:1px solid var(--line); border-radius:8px;
+    padding:9px 11px; cursor:pointer; user-select:none; -webkit-user-select:none;
+  }
+  button:disabled{opacity:.35;}
+  button.accent{background:var(--accent); border-color:var(--accent-dn); color:#1a1005; font-weight:700;}
+  button:active:not(:disabled){transform:translateY(1px);}
+  input[type=text]{
+    font-family:inherit; font-size:13px; color:var(--ink);
+    background:#0b1119; border:1px solid var(--line); border-radius:8px; padding:9px 10px;
+  }
+  #topbar{
+    display:flex; align-items:center; gap:5px; padding:6px 8px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex:none;
+  }
+  #topbar .brand{font-size:9px; letter-spacing:.1em; color:var(--dim); line-height:1.25; margin-right:auto;}
+  #topbar .brand b{color:var(--ink); font-weight:600; font-size:10.5px;}
+  #undo,#redo{font-size:16px; padding:7px 10px;}
+  #main{flex:1; display:flex; flex-direction:column; min-height:0; min-width:0;}
+  #stage{flex:1; position:relative; min-height:0; min-width:0; order:1;}
+  #tray{order:2;}
+  #inspector{order:3;}
+  canvas#cv{position:absolute; inset:0; width:100%; height:100%; touch-action:none;}
+  #banner{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    background:var(--accent); color:#1a1005; font-weight:700; font-size:15px;
+    padding:8px 18px; border-radius:10px; display:none; pointer-events:none; letter-spacing:.08em;
+  }
+  #playhint{
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    color:var(--dim); font-size:12px; display:none; pointer-events:none;
+    background:rgba(15,23,34,.7); padding:4px 10px; border-radius:6px; white-space:nowrap;
+  }
+  /* ---------- tray ---------- */
+  #tray{
+    display:flex; gap:7px; padding:6px 8px; overflow-x:auto;
+    background:var(--panel); border-top:1px solid var(--line); scrollbar-width:none; flex:none;
+    align-items:stretch; justify-content:center;
+  }
+  #tray::-webkit-scrollbar{display:none;}
+  .preset{
+    flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    background:#1d2c40; border:1px solid var(--line); border-radius:10px;
+    padding:6px 10px; font-size:10px; color:var(--dim); cursor:pointer;
+    user-select:none; -webkit-user-select:none; min-width:56px;
+  }
+  .preset.on{border-color:var(--accent); background:#33261a; color:var(--ink);}
+  .preset.viewon{border-color:var(--viewblue); background:#16283c; color:#cfe4ff;}
+  .preset:active{transform:translateY(1px);}
+  .preset .ico{height:24px; display:flex; align-items:center; justify-content:center; font-size:18px;}
+  .preset .shp{border:1px solid rgba(0,0,0,.4);}
+  #handrow{display:flex; gap:5px; flex:none;}
+  #handrow .preset{min-width:44px; padding:6px 6px;}
+  body.land #handrow{flex-direction:row; width:100%;}
+  body.land #handrow .preset{flex:1;}
+  /* ---------- inspector ---------- */
+  #inspector{
+    background:var(--panel); border-top:1px solid var(--line);
+    padding:6px 8px 8px; display:flex; flex-direction:column; gap:6px; flex:none;
+  }
+  #hint{color:var(--dim); font-size:11px; line-height:1.45; text-align:center;}
+  .row{display:flex; gap:7px; flex-wrap:wrap; align-items:center; justify-content:center;}
+  .swwrap{display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;}
+  .sw{
+    width:34px; height:28px; border-radius:8px; flex:none;
+    border:2px solid rgba(0,0,0,.4);
+  }
+  .swwrap span{font-size:8.5px; color:var(--dim); letter-spacing:.04em;}
+  .swwrap.on .sw{border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,138,61,.35);}
+  .swwrap.on span{color:var(--ink);}
+  .chip{
+    display:flex; align-items:center; gap:5px;
+    font-size:12px; padding:8px 10px; border-radius:8px;
+    background:#1d2c40; border:1px solid var(--line); cursor:pointer;
+    user-select:none; -webkit-user-select:none;
+  }
+  .chip.tgl.on{border-color:#6fa9e6; background:#1b2c42; color:#cfe4ff;}
+  #del{color:#ff9d9d; border-color:#5a2c34; background:#2b1a20; padding:8px 11px;}
+  #readout{font-size:10.5px; color:var(--dim);}
+  /* ---------- landscape rails ---------- */
+  body.land #main{flex-direction:row;}
+  body.land #tray{
+    order:0; flex-direction:column; overflow-y:auto; overflow-x:hidden;
+    width:84px; border-top:none; border-right:1px solid var(--line); padding:6px 5px;
+    justify-content:flex-start;
+  }
+  body.land #stage{order:1;}
+  body.land #inspector{
+    order:2; width:132px; border-top:none; border-left:1px solid var(--line); overflow-y:auto;
+    justify-content:flex-start;
+  }
+  body.land .preset{width:100%; min-width:0;}
+  body.land .chip{width:100%; justify-content:center;}
+  body.land #readout{width:100%; text-align:center;}
+  body.land #hint{font-size:10.5px;}
+  /* ---------- modals ---------- */
+  .modal{
+    position:fixed; inset:0; background:rgba(8,12,18,.93); z-index:20;
+    display:none; flex-direction:column; padding:14px; gap:10px; overflow-y:auto;
+  }
+  .modal h2{font-size:11px; letter-spacing:.13em; color:var(--dim); font-weight:600; line-height:1.6; flex:none;}
+  .modal textarea{
+    flex:1; background:#0b1119; color:#bfe0a8; border:1px solid var(--line);
+    border-radius:10px; padding:12px; font-family:inherit; font-size:12px;
+    resize:none; line-height:1.5; min-height:120px;
+  }
+  #json{white-space:pre;}
+  #notetext{white-space:pre-wrap; color:var(--ink); font-size:14px; max-height:38vh;}
+  .modal .row{justify-content:flex-end; flex:none;}
+  #n-mic.rec{background:#5a1f28; border-color:#a33; color:#ffb0b0;}
+  #lib-save{justify-content:flex-start;}
+  #lib-save input{flex:1; min-width:90px;}
+  #lib-list{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px;}
+  .scene h3{font-size:10px; letter-spacing:.14em; color:var(--dim); margin-bottom:6px;}
+  .cards{display:flex; gap:10px; overflow-x:auto; padding-bottom:4px;}
+  .card{
+    flex:none; width:150px; background:#121c29; border:1px solid var(--line);
+    border-radius:10px; overflow:hidden; cursor:pointer; position:relative;
+  }
+  .card canvas{display:block; width:100%; height:84px; background:#101a27;}
+  .card .nm{font-size:11px; padding:6px 8px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .card .rm{
+    position:absolute; top:4px; right:4px; background:rgba(20,10,12,.8);
+    color:#ff9d9d; border:1px solid #5a2c34; border-radius:6px;
+    font-size:11px; padding:2px 7px;
+  }
+  /* emoji picker */
+  #epicks{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; flex:none;}
+  #epicks button{font-size:22px; padding:8px 10px;}
+  #erow{justify-content:center;}
+  #einput{font-size:22px; width:90px; text-align:center;}
+  #toast{
+    position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
+    background:#2c4460; color:#fff; font-size:12px; padding:8px 14px;
+    border-radius:8px; display:none; z-index:40; text-align:center; max-width:86vw;
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button id="undo" title="undo">↶</button>
+  <div class="brand"><b>LEVELFORGE</b> v0.6<br>schema v0.3</div>
+  <button id="b-schema">{ }</button>
+  <button id="b-lib">💾</button>
+  <button id="b-play" class="accent">▶</button>
+  <button id="redo" title="redo">↷</button>
+</div>
+
+<div id="main">
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="banner">LEVEL CLEAR</div>
+    <div id="playhint">drag the ball back · release to launch</div>
+  </div>
+
+  <div id="tray"></div>
+
+  <div id="inspector">
+    <div class="row" id="matrow">
+      <span class="swwrap" data-m="wood"><span class="sw" style="background:var(--wood)"></span><span>wood</span></span>
+      <span class="swwrap" data-m="stone"><span class="sw" style="background:var(--stone)"></span><span>stone</span></span>
+      <span class="swwrap" data-m="metal"><span class="sw" style="background:var(--metal)"></span><span>metal</span></span>
+      <span class="swwrap" data-m="ice"><span class="sw" style="background:var(--ice)"></span><span>ice</span></span>
+      <span class="swwrap" data-m="rubber"><span class="sw" style="background:var(--rubber)"></span><span>rubber</span></span>
+      <span class="swwrap" data-m="target"><span class="sw" style="background:var(--target)"></span><span>target</span></span>
+    </div>
+    <div id="hint">✋ tap=select · drag=move (lifts above your finger) · pinch=resize · twist=rotate. 🔍 pinch zooms, drag pans, double-tap resets. Gravity only in ▶. Ice melts in Test.</div>
+    <div id="selwrap" style="display:none">
+      <div class="row">
+        <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
+        <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
+        <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
+        <button id="del" title="delete">✕</button>
+        <span id="readout"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <h2>LEVEL SCHEMA — the contract between you and Claude.<br>
+  <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with JSON pasted in.</h2>
+  <textarea id="json" spellcheck="false"></textarea>
+  <div class="row">
+    <button id="m-demo">Demo</button>
+    <button id="m-clear">Clear level</button>
+    <button id="m-copy">Copy</button>
+    <button id="m-load">Paste &amp; Load</button>
+    <button id="m-close" class="accent">Close</button>
+  </div>
+</div>
+
+<div class="modal" id="nmodal">
+  <h2>NOTE — intent, in your words. 🎤 tries in-browser transcription. Text rides in the schema.</h2>
+  <textarea id="notetext" placeholder="e.g. this tower should topple left when the top stone falls…"></textarea>
+  <div class="row">
+    <button id="n-mic">🎤 dictate</button>
+    <button id="n-cancel">Cancel</button>
+    <button id="n-save" class="accent">Save note</button>
+  </div>
+</div>
+
+<div class="modal" id="emodal">
+  <h2>EMOJI STAMP — places as a round physics body in the current material.<br>stone 🎃 is heavy · rubber 🦆 bounces · ice 😶‍🌫️ melts.</h2>
+  <div id="epicks"></div>
+  <div class="row" id="erow">
+    <input type="text" id="einput" placeholder="🙂" maxlength="4">
+    <button id="e-set" class="accent">Use</button>
+    <button id="e-close">Close</button>
+  </div>
+</div>
+
+<div class="modal" id="lmodal">
+  <h2>LIBRARY — named commit points, grouped by scene. Tap a card to load it.</h2>
+  <div class="row" id="lib-save">
+    <input type="text" id="sv-name" placeholder="level name">
+    <input type="text" id="sv-scene" placeholder="scene (optional)">
+    <button id="sv-go" class="accent">Save current</button>
+  </div>
+  <div id="lib-list"></div>
+  <div class="row"><button id="l-close" class="accent">Close</button></div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   LEVELFORGE v0.6 · schema v0.3
+   + tri and emoji shapes; ✋/🔍 split; drag lift; break retune with
+   settle grace; ice melts in Test.
+===================================================================== */
+
+const WORLD = {w:1600, h:900};
+const FLOOR_Y = 860;
+const SNAP = 10;
+const MAGNET = 14;
+const DEG = 180/Math.PI;
+const MAXZOOM = 4;
+const SETTLE_MS = 500;      // no breaking during initial settle
+const MELT_K = 0.9985;      // ice shrink per frame in play
+
+const MATERIALS = {
+  wood:   {color:'#b5824c', density:0.0010, friction:0.40, restitution:0.20, breakAt:9   },
+  stone:  {color:'#8e939c', density:0.0025, friction:0.60, restitution:0.10, breakAt:20  },
+  metal:  {color:'#a9b6c4', density:0.0040, friction:0.30, restitution:0.05, breakAt:null},
+  ice:    {color:'#9fd6ea', density:0.0009, friction:0.05, restitution:0.10, breakAt:6.5 },
+  rubber: {color:'#d94f5c', density:0.0012, friction:0.90, restitution:0.85, breakAt:null},
+  target: {color:'#7bc86c', density:0.0008, friction:0.50, restitution:0.30, breakAt:3.2 },
+};
+
+const SHAPES = [
+  {name:'plank', shape:'box',    w:170, h:24, rotatable:true},
+  {name:'block', shape:'box',    w:72,  h:72},
+  {name:'ball',  shape:'circle', r:30},
+  {name:'tri',   shape:'tri',    w:90,  h:70},
+  {name:'emoji', shape:'emoji',  r:30},
+];
+const EMOJI_PICKS=['🎃','💣','⭐','🦆','🐟','🌵','🎁','💎','🪵','🧱','🍉','🤖'];
+let curEmoji='🎃';
+
+let idSeq = 1;
+const nid = ()=> 'o' + (idSeq++);
+let curMat = 'wood';
+
+function emptyLevel(){
+  return {
+    schemaVersion:'0.3',
+    meta:{name:'untitled', scene:'', gravity:1, note:''},
+    world:{w:WORLD.w, h:WORLD.h, floorY:FLOOR_Y},
+    slingshot:{x:230, y:FLOOR_Y-90},
+    objects:[],
+  };
+}
+function demoObjects(){
+  return [
+    {id:nid(), shape:'box', x:1100, y:FLOOR_Y-40,  w:30,  h:80,  angle:0, material:'wood',  anchored:false, path:null, note:''},
+    {id:nid(), shape:'box', x:1240, y:FLOOR_Y-40,  w:30,  h:80,  angle:0, material:'wood',  anchored:false, path:null, note:''},
+    {id:nid(), shape:'box', x:1170, y:FLOOR_Y-95,  w:220, h:26,  angle:0, material:'wood',  anchored:false, path:null, note:''},
+    {id:nid(), shape:'tri', x:1000, y:FLOOR_Y-35,  w:90,  h:70,  angle:0, material:'stone', anchored:true,  path:null, note:'deflector ramp'},
+    {id:nid(), shape:'circle', x:1170, y:FLOOR_Y-38,  r:24, angle:0, material:'target', anchored:false, path:null, note:''},
+    {id:nid(), shape:'emoji', x:1170, y:FLOOR_Y-150, r:26, angle:0, material:'wood', emoji:'🎃', anchored:false, path:null, note:''},
+    {id:nid(), shape:'box', x:640, y:FLOOR_Y-260, w:180, h:22, angle:0, material:'metal', anchored:true,
+     path:{x:900, y:FLOOR_Y-260, speed:90}, note:'moving platform, Red Ball style'},
+  ];
+}
+let level = emptyLevel();
+
+/* ---------- undo / redo ---------- */
+const undoStack=[], redoStack=[];
+function snap(){
+  undoStack.push(JSON.stringify(level));
+  if(undoStack.length>80) undoStack.shift();
+  redoStack.length=0; syncHistoryBtns();
+}
+function doUndo(){
+  if(!undoStack.length) return;
+  redoStack.push(JSON.stringify(level));
+  level = JSON.parse(undoStack.pop()); afterHistory();
+}
+function doRedo(){
+  if(!redoStack.length) return;
+  undoStack.push(JSON.stringify(level));
+  level = JSON.parse(redoStack.pop()); afterHistory();
+}
+function afterHistory(){ selId=null; gesture=null; syncInspector(); syncHistoryBtns(); }
+function syncHistoryBtns(){
+  document.getElementById('undo').disabled = !undoStack.length;
+  document.getElementById('redo').disabled = !redoStack.length;
+}
+
+/* ---------- canvas + zoomable view ---------- */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let view = {scale:1, ox:0, oy:0, fit:1, zoom:1};
+let cw=1, chh=1;
+
+function orient(){
+  document.body.classList.toggle('land', window.innerWidth > window.innerHeight*1.15);
+}
+function clampView(){
+  view.zoom = Math.min(Math.max(view.zoom,1), MAXZOOM);
+  view.scale = view.fit*view.zoom;
+  const W=WORLD.w*view.scale, H=WORLD.h*view.scale;
+  if(W<=cw) view.ox=(cw-W)/2; else view.ox=Math.min(0, Math.max(cw-W, view.ox));
+  if(H<=chh) view.oy=(chh-H)/2; else view.oy=Math.min(0, Math.max(chh-H, view.oy));
+}
+function resize(){
+  orient();
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1,r.width*dpr); cv.height = Math.max(1,r.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cw=r.width; chh=r.height;
+  view.fit = Math.min(cw/WORLD.w, chh/WORLD.h);
+  clampView();
+}
+function resetView(){ view.zoom=1; clampView(); }
+window.addEventListener('resize', ()=>setTimeout(resize,80));
+
+const s2w = (sx,sy)=>{
+  const r = cv.getBoundingClientRect();
+  return {x:(sx-r.left-view.ox)/view.scale, y:(sy-r.top-view.oy)/view.scale};
+};
+const scr = e=>{
+  const r=cv.getBoundingClientRect();
+  return {sx:e.clientX-r.left, sy:e.clientY-r.top};
+};
+
+/* ---------- geometry helpers ---------- */
+function triVerts(o){ // centroid-centered isoceles wedge, apex up
+  return [{x:-o.w/2,y:o.h/3},{x:o.w/2,y:o.h/3},{x:0,y:-2*o.h/3}];
+}
+function pointInTri(px,py,v){
+  const s=(a,b)=> (px-b.x)*(a.y-b.y)-(a.x-b.x)*(py-b.y);
+  const d1=s(v[0],v[1]), d2=s(v[1],v[2]), d3=s(v[2],v[0]);
+  const neg=(d1<0)||(d2<0)||(d3<0), pos=(d1>0)||(d2>0)||(d3>0);
+  return !(neg&&pos);
+}
+
+/* ---------- drawing ---------- */
+function hash(n){ const x = Math.sin(n*127.1)*43758.5453; return x-Math.floor(x); }
+
+function drawMaterialCtx(c, o, ghost, melt=1){
+  const m = MATERIALS[o.material];
+  c.save();
+  c.translate(o.x, o.y);
+  c.rotate((o.angle||0)/DEG);
+  c.globalAlpha = ghost ? 0.45 : (o.material==='ice' ? 0.82 : 1);
+  c.fillStyle = m.color;
+  c.strokeStyle = 'rgba(0,0,0,.35)';
+  c.lineWidth = 2;
+
+  if(o.shape==='box'){
+    const w=o.w*melt, h=o.h*melt;
+    c.beginPath(); c.rect(-w/2,-h/2,w,h); c.fill(); c.stroke();
+    c.save(); c.beginPath(); c.rect(-w/2,-h/2,w,h); c.clip();
+    if(o.material==='wood'){
+      c.strokeStyle='rgba(90,55,20,.45)'; c.lineWidth=2;
+      const along = w>=h;
+      const len = along? w : h, across = along? h : w;
+      const nLines = Math.max(2, Math.floor(across/14));
+      for(let i=1;i<nLines;i++){
+        const t = -across/2 + i*(across/nLines);
+        c.beginPath();
+        if(along){c.moveTo(-len/2,t); c.lineTo(len/2,t);}
+        else{c.moveTo(t,-len/2); c.lineTo(t,len/2);}
+        c.stroke();
+      }
+    }else if(o.material==='stone'){
+      c.fillStyle='rgba(0,0,0,.18)';
+      const n = Math.max(4, (w*h)/900);
+      for(let i=0;i<n;i++){
+        const px=(hash(i*3+1)-.5)*w, py=(hash(i*3+2)-.5)*h;
+        c.beginPath(); c.arc(px,py, 1.5+hash(i)*2.5, 0, 7); c.fill();
+      }
+    }else if(o.material==='metal'){
+      c.strokeStyle='rgba(50,70,95,.5)'; c.lineWidth=3;
+      c.strokeRect(-w/2+4,-h/2+4,w-8,h-8);
+      c.fillStyle='rgba(50,70,95,.6)';
+      [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([a,b])=>{
+        c.beginPath(); c.arc(a*(w/2-9), b*(h/2-9), 2.6, 0, 7); c.fill();
+      });
+    }else if(o.material==='ice'){
+      c.strokeStyle='rgba(255,255,255,.55)'; c.lineWidth=2;
+      c.beginPath(); c.moveTo(-w/2+5,h/2-6); c.lineTo(w/2-8,-h/2+5); c.stroke();
+    }
+    c.restore();
+  }
+  else if(o.shape==='tri'){
+    const v=triVerts({w:o.w*melt, h:o.h*melt});
+    c.beginPath();
+    c.moveTo(v[0].x,v[0].y); c.lineTo(v[1].x,v[1].y); c.lineTo(v[2].x,v[2].y);
+    c.closePath(); c.fill(); c.stroke();
+    c.save(); c.clip();
+    if(o.material==='stone'){
+      c.fillStyle='rgba(0,0,0,.18)';
+      for(let i=0;i<8;i++){
+        c.beginPath(); c.arc((hash(i*3+1)-.5)*o.w*.8, (hash(i*3+2)-.3)*o.h*.7, 1.5+hash(i)*2.5, 0, 7); c.fill();
+      }
+    }else if(o.material==='wood'){
+      c.strokeStyle='rgba(90,55,20,.45)'; c.lineWidth=2;
+      for(let i=1;i<4;i++){
+        const t=v[2].y+(v[0].y-v[2].y)*i/4;
+        c.beginPath(); c.moveTo(-o.w/2,t); c.lineTo(o.w/2,t); c.stroke();
+      }
+    }
+    c.restore();
+  }
+  else if(o.shape==='emoji'){
+    const r=o.r*melt;
+    c.globalAlpha = ghost?0.45:0.25;
+    c.beginPath(); c.arc(0,0,r,0,7); c.fill();
+    c.globalAlpha = ghost?0.6:1;
+    c.font = (r*1.9)+'px system-ui,sans-serif';
+    c.textAlign='center'; c.textBaseline='middle';
+    c.fillText(o.emoji||'🙂', 0, r*0.08);
+  }
+  else{ // circle
+    const r=o.r*melt;
+    c.beginPath(); c.arc(0,0,r,0,7); c.fill(); c.stroke();
+    if(o.material==='target'){
+      c.fillStyle='#173a12';
+      c.beginPath(); c.arc(-r*.32,-r*.18,r*.14,0,7); c.fill();
+      c.beginPath(); c.arc( r*.32,-r*.18,r*.14,0,7); c.fill();
+      c.strokeStyle='#173a12'; c.lineWidth=2.5;
+      c.beginPath(); c.arc(0,r*.15,r*.4,.25*Math.PI,.75*Math.PI); c.stroke();
+    }else if(o.material==='rubber'){
+      c.fillStyle='rgba(255,255,255,.35)';
+      c.beginPath(); c.arc(-r*.3,-r*.3,r*.22,0,7); c.fill();
+    }else{
+      c.strokeStyle='rgba(0,0,0,.25)';
+      c.beginPath(); c.arc(0,0,r*.62,0,7); c.stroke();
+    }
+  }
+  if(o.anchored && !o.path){
+    c.globalAlpha=.85; c.fillStyle='rgba(15,23,34,.8)';
+    c.font='11px ui-monospace,monospace'; c.textAlign='center'; c.textBaseline='middle';
+    c.fillText('⚓',0,0);
+  }
+  if(o.note){
+    c.globalAlpha=1; c.fillStyle='#ff8a3d';
+    const px = o.shape==='box' ? o.w/2 : (o.r||o.w/2)*0.8;
+    const py = o.shape==='box' ? -o.h/2 : -(o.r||o.h/2)*0.8;
+    c.beginPath(); c.arc(px,py,5,0,7); c.fill();
+  }
+  c.restore();
+}
+const drawMaterial = (o,g)=>drawMaterialCtx(ctx,o,g);
+
+function drawSlingshotCtx(c,x,y,label){
+  c.save(); c.translate(x,y);
+  c.strokeStyle='#6b4a2c'; c.lineWidth=10; c.lineCap='round';
+  c.beginPath(); c.moveTo(0,90); c.lineTo(0,10); c.stroke();
+  c.beginPath(); c.moveTo(0,10); c.lineTo(-22,-26); c.stroke();
+  c.beginPath(); c.moveTo(0,10); c.lineTo(22,-26); c.stroke();
+  if(label){
+    c.fillStyle='rgba(125,142,163,.9)';
+    c.font='15px ui-monospace,monospace'; c.textAlign='center';
+    c.fillText('launcher', 0, 118);
+  }
+  c.restore();
+}
+
+function drawBoardCtx(c, lvl){
+  c.fillStyle='#101a27'; c.fillRect(0,0,WORLD.w,WORLD.h);
+  c.strokeStyle='rgba(60,90,130,.16)'; c.lineWidth=1;
+  for(let x=0;x<=WORLD.w;x+=40){c.beginPath();c.moveTo(x,0);c.lineTo(x,WORLD.h);c.stroke();}
+  for(let y=0;y<=WORLD.h;y+=40){c.beginPath();c.moveTo(0,y);c.lineTo(WORLD.w,y);c.stroke();}
+  const fy = lvl.world?.floorY ?? FLOOR_Y;
+  c.fillStyle='#22314a'; c.fillRect(0,fy,WORLD.w,WORLD.h-fy);
+  c.strokeStyle='#31486b'; c.lineWidth=3;
+  c.beginPath(); c.moveTo(0,fy); c.lineTo(WORLD.w,fy); c.stroke();
+}
+
+function drawWorldBase(){
+  ctx.clearRect(0,0,cw,chh);
+  ctx.fillStyle='#0a0f16'; ctx.fillRect(0,0,cw,chh);
+  ctx.save();
+  ctx.translate(view.ox,view.oy); ctx.scale(view.scale,view.scale);
+  drawBoardCtx(ctx, level);
+}
+
+function renderThumb(canvasEl, lvl){
+  const c = canvasEl.getContext('2d');
+  const s = canvasEl.width/WORLD.w;
+  c.setTransform(s,0,0,s,0,(canvasEl.height-WORLD.h*s)/2);
+  drawBoardCtx(c,lvl);
+  drawSlingshotCtx(c,lvl.slingshot.x,lvl.slingshot.y,false);
+  for(const o of (lvl.objects||[])) drawMaterialCtx(c,{...o,note:''},false);
+}
+
+function drawEdit(){
+  drawWorldBase();
+  drawSlingshotCtx(ctx, level.slingshot.x, level.slingshot.y, true);
+  if(level.objects.length===0){
+    ctx.fillStyle='rgba(125,142,163,.8)';
+    ctx.font='30px ui-monospace,monospace'; ctx.textAlign='center';
+    ctx.fillText(armed ? 'tap the board to stamp' : 'arm a shape, then tap the board',
+                 WORLD.w/2, WORLD.h*0.42);
+  }
+  for(const o of level.objects){
+    if(o.path){
+      ctx.strokeStyle='rgba(120,170,230,.6)'; ctx.setLineDash([8,8]); ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(o.path.x,o.path.y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle='#6fa9e6';
+      ctx.beginPath(); ctx.arc(o.path.x,o.path.y,12,0,7); ctx.fill();
+      ctx.fillStyle='#0f1722'; ctx.font='12px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('↔',o.path.x,o.path.y);
+    }
+    drawMaterial(o,false);
+  }
+  const sel = selected();
+  if(sel){
+    ctx.save(); ctx.translate(sel.x,sel.y); ctx.rotate((sel.angle||0)/DEG);
+    ctx.strokeStyle='#ff8a3d'; ctx.lineWidth=2.5/view.zoom; ctx.setLineDash([6,5]);
+    if(sel.shape==='box') ctx.strokeRect(-sel.w/2-6,-sel.h/2-6,sel.w+12,sel.h+12);
+    else if(sel.shape==='tri'){
+      const v=triVerts(sel);
+      ctx.beginPath(); ctx.moveTo(v[0].x,v[0].y); ctx.lineTo(v[1].x,v[1].y); ctx.lineTo(v[2].x,v[2].y);
+      ctx.closePath(); ctx.stroke();
+    }
+    else {ctx.beginPath(); ctx.arc(0,0,(sel.r)+7,0,7); ctx.stroke();}
+    ctx.restore(); ctx.setLineDash([]);
+  }
+  if(view.zoom>1.01){
+    ctx.restore();
+    ctx.fillStyle='rgba(90,162,230,.85)';
+    ctx.font='12px ui-monospace,monospace'; ctx.textAlign='right';
+    ctx.fillText('🔍 '+view.zoom.toFixed(1)+'×', cw-10, 20);
+    return;
+  }
+  ctx.restore();
+}
+
+/* ---------- magnet snapping (boxes, circles, emoji; not tri) ---------- */
+function extents(o){
+  if(o.shape==='circle'||o.shape==='emoji') return {hw:o.r, hh:o.r};
+  if(o.shape==='tri') return null;
+  const a=Math.round(o.angle||0);
+  if(((a%180)+180)%180===90) return {hw:o.h/2, hh:o.w/2};
+  if(((a%90)+90)%90===0)     return {hw:o.w/2, hh:o.h/2};
+  return null;
+}
+function magnet(sel){
+  const e=extents(sel);
+  const out={sx:false, sy:false};
+  if(!e) return out;
+  const candX=[], candY=[FLOOR_Y - e.hh];
+  for(const o of level.objects){
+    if(o.id===sel.id) continue;
+    const oe=extents(o); if(!oe) continue;
+    candX.push(o.x, o.x-oe.hw-e.hw, o.x+oe.hw+e.hw, o.x-oe.hw+e.hw, o.x+oe.hw-e.hw);
+    candY.push(o.y, o.y-oe.hh-e.hh, o.y+oe.hh+e.hh, o.y-oe.hh+e.hh, o.y+oe.hh-e.hh);
+  }
+  const th = MAGNET/view.zoom + 4;
+  let bx=null, bdx=th;
+  for(const c of candX){const d=Math.abs(sel.x-c); if(d<bdx){bdx=d; bx=c;}}
+  let by=null, bdy=th;
+  for(const c of candY){const d=Math.abs(sel.y-c); if(d<bdy){bdy=d; by=c;}}
+  if(bx!==null){sel.x=bx; out.sx=true;}
+  if(by!==null){sel.y=by; out.sy=true;}
+  return out;
+}
+
+/* ---------- edit input ---------- */
+let selId=null, armed=null, armedRot=false;
+let handMode='adjust';
+const selected = ()=> level.objects.find(o=>o.id===selId) || null;
+const pointers = new Map();
+const spointers = new Map();
+let gesture=null;
+let lastTapT=0;
+
+function hitObject(p){
+  for(let i=level.objects.length-1;i>=0;i--){
+    const o=level.objects[i];
+    const dx=p.x-o.x, dy=p.y-o.y;
+    const a=-(o.angle||0)/DEG, c=Math.cos(a), s=Math.sin(a);
+    const lx=dx*c-dy*s, ly=dx*s+dy*c;
+    const pad=12/view.zoom+4;
+    if(o.shape==='box'){ if(Math.abs(lx)<=o.w/2+pad && Math.abs(ly)<=o.h/2+pad) return o; }
+    else if(o.shape==='tri'){
+      if(pointInTri(lx,ly,triVerts({w:o.w+pad*2, h:o.h+pad*2}))) return o;
+    }
+    else { if(lx*lx+ly*ly <= (o.r+pad)*(o.r+pad)) return o; }
+  }
+  return null;
+}
+const near=(p,x,y,r)=> (p.x-x)**2+(p.y-y)**2 <= r*r;
+const snapN=v=> Math.round(v/SNAP)*SNAP;
+
+function placeArmed(p){
+  snap();
+  const pr=armed;
+  const o={id:nid(), shape:pr.shape, angle:0, material:curMat, anchored:false, path:null, note:''};
+  if(pr.shape==='box'){
+    o.w = (pr.rotatable && armedRot) ? pr.h : pr.w;
+    o.h = (pr.rotatable && armedRot) ? pr.w : pr.h;
+  }else if(pr.shape==='tri'){ o.w=pr.w; o.h=pr.h; }
+  else { o.r=pr.r; if(pr.shape==='emoji') o.emoji=curEmoji; }
+  o.x=p.x; o.y=p.y;
+  const m=magnet(o);
+  if(!m.sx) o.x=snapN(o.x);
+  if(!m.sy) o.y=snapN(o.y);
+  level.objects.push(o);
+  selId=o.id; syncInspector();
+}
+
+cv.addEventListener('pointerdown', e=>{
+  cv.setPointerCapture(e.pointerId);
+  const p = s2w(e.clientX, e.clientY);
+  const sp = scr(e);
+  pointers.set(e.pointerId, p);
+  spointers.set(e.pointerId, sp);
+
+  if(mode==='play'){ playPointerDown(p); return; }
+
+  if(handMode==='view' && !armed){
+    if(spointers.size===2){
+      const [a,b]=[...spointers.values()];
+      gesture={kind:'vzoom', d0:Math.hypot(a.sx-b.sx,a.sy-b.sy),
+               m0:{sx:(a.sx+b.sx)/2, sy:(a.sy+b.sy)/2},
+               z0:view.zoom, ox0:view.ox, oy0:view.oy};
+    }else{
+      const now=performance.now();
+      if(now-lastTapT<300){ resetView(); lastTapT=0; }
+      else lastTapT=now;
+      gesture={kind:'vpan', last:sp};
+    }
+    return;
+  }
+
+  if(pointers.size===2 && selected() && gesture && (gesture.kind==='move'||gesture.kind==='pinch')){
+    const [a,b]=[...pointers.values()];
+    gesture={kind:'pinch', d0:Math.hypot(a.x-b.x,a.y-b.y),
+             a0:Math.atan2(b.y-a.y,b.x-a.x), o:{...selected()}};
+    return;
+  }
+  if(pointers.size>1) return;
+
+  const sel = selected();
+  if(sel && sel.path && near(p, sel.path.x, sel.path.y, 30/view.zoom+6)){
+    snap(); gesture={kind:'path'}; return;
+  }
+  if(near(p, level.slingshot.x, level.slingshot.y+30, 60)){
+    snap(); gesture={kind:'sling'}; selId=null; syncInspector(); return;
+  }
+  const hit = hitObject(p);
+  if(hit){
+    selId=hit.id; syncInspector();
+    snap();
+    gesture={kind:'move', dx:hit.x-p.x, dy:hit.y-p.y, s0:sp, lifted:false};
+    return;
+  }
+  if(armed){ placeArmed(p); return; }
+  selId=null; syncInspector();
+});
+
+cv.addEventListener('pointermove', e=>{
+  if(!pointers.has(e.pointerId)) return;
+  const p = s2w(e.clientX, e.clientY);
+  const sp = scr(e);
+  pointers.set(e.pointerId, p);
+  const prevS = spointers.get(e.pointerId);
+  spointers.set(e.pointerId, sp);
+  if(mode==='play'){ playPointerMove(p); return; }
+  if(!gesture) return;
+  const sel = selected();
+
+  if(gesture.kind==='vpan'){
+    view.ox += sp.sx-prevS.sx;
+    view.oy += sp.sy-prevS.sy;
+    clampView();
+  }
+  else if(gesture.kind==='vzoom' && spointers.size>=2){
+    const [a,b]=[...spointers.values()];
+    const d=Math.hypot(a.sx-b.sx,a.sy-b.sy);
+    const mid={sx:(a.sx+b.sx)/2, sy:(a.sy+b.sy)/2};
+    const k=d/gesture.d0;
+    view.zoom = Math.min(Math.max(gesture.z0*k,1),MAXZOOM);
+    const sc = view.fit*view.zoom, sc0=view.fit*gesture.z0;
+    view.ox = mid.sx - (gesture.m0.sx-gesture.ox0)*(sc/sc0);
+    view.oy = mid.sy - (gesture.m0.sy-gesture.oy0)*(sc/sc0);
+    clampView();
+  }
+  else if(gesture.kind==='pinch' && pointers.size>=2 && sel){
+    const [a,b]=[...pointers.values()];
+    const d=Math.hypot(a.x-b.x,a.y-b.y);
+    const ang=Math.atan2(b.y-a.y,b.x-a.x);
+    const k=Math.max(.2, d/gesture.d0);
+    if(sel.shape==='box'||sel.shape==='tri'){ sel.w=Math.max(24,gesture.o.w*k); sel.h=Math.max(24,gesture.o.h*k); }
+    else sel.r=Math.max(14,gesture.o.r*k);
+    sel.angle=Math.round(gesture.o.angle + (ang-gesture.a0)*DEG);
+  }
+  else if(gesture.kind==='move' && sel){
+    if(!gesture.lifted){
+      const ds=Math.hypot(sp.sx-gesture.s0.sx, sp.sy-gesture.s0.sy);
+      if(ds>10 && e.pointerType!=='mouse'){
+        gesture.dy -= 80/view.zoom;   // lift above the fingertip
+        gesture.lifted=true;
+      }else if(ds>10) gesture.lifted=true;
+    }
+    sel.x=p.x+gesture.dx; sel.y=p.y+gesture.dy;
+    magnet(sel);
+  }
+  else if(gesture.kind==='path' && sel && sel.path){ sel.path.x=p.x; sel.path.y=p.y; }
+  else if(gesture.kind==='sling'){ level.slingshot.x=p.x; level.slingshot.y=Math.min(p.y,FLOOR_Y-60); }
+});
+
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  spointers.delete(e.pointerId);
+  if(mode==='play'){ if(pointers.size===0) playPointerUp(); return; }
+  if(pointers.size>0) return;
+  const sel=selected();
+  if(gesture){
+    if(gesture.kind==='move' && sel){
+      const m=magnet(sel);
+      if(!m.sx) sel.x=snapN(sel.x);
+      if(!m.sy) sel.y=snapN(sel.y);
+    }
+    if(gesture.kind==='pinch' && sel){
+      if(sel.shape==='box'||sel.shape==='tri'){sel.w=snapN(sel.w);sel.h=snapN(sel.h);} else sel.r=snapN(sel.r);
+      const m=magnet(sel);
+      if(!m.sx) sel.x=snapN(sel.x);
+      if(!m.sy) sel.y=snapN(sel.y);
+    }
+    if(gesture.kind==='path' && sel && sel.path){ sel.path.x=snapN(sel.path.x); sel.path.y=snapN(sel.path.y); }
+    if(gesture.kind==='sling'){ level.slingshot.x=snapN(level.slingshot.x); level.slingshot.y=snapN(level.slingshot.y); }
+  }
+  gesture=null;
+  syncInspector();
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+
+/* ---------- tray: ✋ / 🔍 as separate buttons + shapes ---------- */
+const tray = document.getElementById('tray');
+const trayEls=[];
+
+const handrow=document.createElement('div');
+handrow.id='handrow';
+const adjEl=document.createElement('div');
+adjEl.className='preset on';
+adjEl.innerHTML='<span class="ico">✋</span>adjust';
+adjEl.addEventListener('click', ()=>{ handMode='adjust'; setArmed(null); });
+const viewEl=document.createElement('div');
+viewEl.className='preset';
+viewEl.innerHTML='<span class="ico">🔍</span>view';
+viewEl.addEventListener('click', ()=>{ handMode='view'; setArmed(null); });
+handrow.appendChild(adjEl); handrow.appendChild(viewEl);
+tray.appendChild(handrow);
+
+function syncHand(){
+  adjEl.classList.toggle('on', !armed && handMode==='adjust');
+  viewEl.classList.remove('on');
+  viewEl.classList.toggle('viewon', !armed && handMode==='view');
+}
+
+for(const pr of SHAPES){
+  const el=document.createElement('div');
+  el.className='preset';
+  el.innerHTML=`<span class="ico"></span>${pr.name}`;
+  el.addEventListener('click', ()=>{
+    if(mode==='play') return;
+    if(armed===pr && pr.rotatable){ armedRot=!armedRot; drawIco(); return; }
+    if(armed===pr && pr.shape==='emoji'){ openEmoji(); return; }
+    if(armed===pr){ setArmed(null); return; }
+    armedRot=false;
+    if(pr.shape==='emoji' && !curEmoji){ openEmoji(); }
+    setArmed(pr);
+  });
+  trayEls.push({el, pr});
+  tray.appendChild(el);
+}
+function drawIco(){
+  const col = MATERIALS[curMat].color;
+  for(const {el,pr} of trayEls){
+    const ico=el.querySelector('.ico');
+    if(pr.shape==='box'){
+      let w=pr.w, h=pr.h;
+      if(pr.rotatable && armed===pr && armedRot){ [w,h]=[h,w]; }
+      const iw=Math.min(40, w*0.22), ih=Math.min(22, Math.max(6, h*0.22));
+      ico.innerHTML=`<span class="shp" style="width:${iw}px;height:${ih}px;border-radius:3px;background:${col}"></span>`;
+    }else if(pr.shape==='tri'){
+      ico.innerHTML=`<span class="shp" style="width:0;height:0;border:none;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:19px solid ${col}"></span>`;
+    }else if(pr.shape==='emoji'){
+      ico.textContent=curEmoji;
+    }else{
+      ico.innerHTML=`<span class="shp" style="width:20px;height:20px;border-radius:50%;background:${col}"></span>`;
+    }
+  }
+}
+function setArmed(pr){
+  armed=pr;
+  if(!armed) armedRot=false;
+  trayEls.forEach(x=>x.el.classList.toggle('on', x.pr===armed));
+  if(armed){ selId=null; }
+  syncHand(); drawIco(); syncInspector();
+}
+drawIco(); syncHand();
+
+/* ---------- emoji picker ---------- */
+const $=id=>document.getElementById(id);
+const epicks=$('epicks');
+for(const em of EMOJI_PICKS){
+  const b=document.createElement('button');
+  b.textContent=em;
+  b.addEventListener('click', ()=>{ curEmoji=em; drawIco(); $('emodal').style.display='none'; });
+  epicks.appendChild(b);
+}
+function openEmoji(){ $('einput').value=''; $('emodal').style.display='flex'; }
+$('e-set').onclick=()=>{
+  const v=$('einput').value.trim();
+  if(v){ curEmoji=[...v][0] ? v : curEmoji; }
+  drawIco(); $('emodal').style.display='none';
+};
+$('e-close').onclick=()=>$('emodal').style.display='none';
+
+/* ---------- inspector ---------- */
+function syncInspector(){
+  const sel=selected();
+  $('selwrap').style.display = sel?'block':'none';
+  $('hint').style.display = sel?'none':'block';
+  const shown = sel ? sel.material : curMat;
+  document.querySelectorAll('.swwrap[data-m]').forEach(c=>
+    c.classList.toggle('on', c.dataset.m===shown));
+  if(!sel) return;
+  $('tg-anchor').classList.toggle('on', !!sel.anchored);
+  $('tg-move').classList.toggle('on', !!sel.path);
+  $('tg-note').classList.toggle('on', !!sel.note);
+  syncReadout();
+}
+function syncReadout(){
+  const sel=selected(); if(!sel) return;
+  const size = (sel.shape==='box'||sel.shape==='tri') ? `${Math.round(sel.w)}×${Math.round(sel.h)}` : `r${Math.round(sel.r)}`;
+  $('readout').textContent = `${Math.round(sel.x)},${Math.round(sel.y)} · ${size} · ${Math.round(sel.angle||0)}°`;
+}
+document.querySelectorAll('.swwrap[data-m]').forEach(c=>
+  c.addEventListener('click',()=>{
+    curMat = c.dataset.m;
+    drawIco();
+    const s=selected();
+    if(s){ snap(); s.material=curMat; }
+    syncInspector();
+  }));
+$('tg-anchor').onclick=()=>{const s=selected(); if(s){snap(); s.anchored=!s.anchored; syncInspector();}};
+$('tg-move').onclick=()=>{
+  const s=selected(); if(!s) return;
+  snap();
+  s.path = s.path ? null : {x:Math.min(s.x+200,WORLD.w-40), y:s.y, speed:90};
+  syncInspector();
+};
+$('del').onclick=()=>{
+  if(!selId) return;
+  snap();
+  level.objects=level.objects.filter(o=>o.id!==selId); selId=null; syncInspector();
+};
+$('undo').onclick=doUndo;
+$('redo').onclick=doRedo;
+
+/* ---------- note editor + dictation ---------- */
+let recog=null, recActive=false;
+$('tg-note').onclick=()=>{
+  const s=selected(); if(!s) return;
+  $('notetext').value = s.note||'';
+  $('nmodal').style.display='flex';
+};
+$('n-cancel').onclick=()=>{ stopDictation(); $('nmodal').style.display='none'; };
+$('n-save').onclick=()=>{
+  stopDictation();
+  const s=selected();
+  if(s){ snap(); s.note=$('notetext').value.trim(); syncInspector(); }
+  $('nmodal').style.display='none';
+};
+function stopDictation(){
+  if(recog){ try{recog.stop();}catch{} }
+  recActive=false; $('n-mic').classList.remove('rec');
+  $('n-mic').textContent='🎤 dictate';
+}
+$('n-mic').onclick=()=>{
+  if(recActive){ stopDictation(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ toast('no speech engine here — dictation will work in the deployed PWA'); return; }
+  try{
+    recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = false;
+    recog.onresult = ev=>{
+      let add='';
+      for(let i=ev.resultIndex;i<ev.results.length;i++)
+        if(ev.results[i].isFinal) add += ev.results[i][0].transcript + ' ';
+      if(add){
+        const t=$('notetext');
+        t.value = (t.value ? t.value.replace(/\s+$/,'')+' ' : '') + add.trim();
+      }
+    };
+    recog.onerror = e=>{
+      stopDictation();
+      toast(e.error==='not-allowed'
+        ? 'mic blocked in this preview — works in the PWA build'
+        : 'dictation error: '+e.error);
+    };
+    recog.onend = ()=>{ if(recActive) stopDictation(); };
+    recog.start();
+    recActive=true;
+    $('n-mic').classList.add('rec');
+    $('n-mic').textContent='■ stop';
+  }catch{
+    toast('mic unavailable in this preview — works in the PWA build');
+  }
+};
+
+/* ---------- schema modal ---------- */
+$('b-schema').onclick=()=>{
+  $('json').value = JSON.stringify(level,null,2);
+  $('modal').style.display='flex';
+};
+$('m-close').onclick=()=>$('modal').style.display='none';
+$('m-copy').onclick=async()=>{
+  try{ await navigator.clipboard.writeText($('json').value); toast('copied — paste it to Claude'); }
+  catch{ $('json').select(); document.execCommand('copy'); toast('copied — paste it to Claude'); }
+};
+$('m-load').onclick=()=>{
+  try{
+    const l=JSON.parse($('json').value);
+    if(!l.objects || !l.schemaVersion) throw 0;
+    snap();
+    level=l;
+    let mx=0; for(const o of level.objects){const n=parseInt(String(o.id).slice(1)); if(n>mx)mx=n;}
+    idSeq=mx+1; selId=null; syncInspector();
+    $('modal').style.display='none'; toast('level loaded');
+  }catch{ toast('could not parse that JSON'); }
+};
+$('m-clear').onclick=()=>{
+  snap();
+  level=emptyLevel(); selId=null; syncInspector();
+  $('json').value = JSON.stringify(level,null,2);
+  toast('cleared — undo brings it back');
+};
+$('m-demo').onclick=()=>{
+  snap();
+  level=emptyLevel(); level.meta.name='starter-tower';
+  level.objects=demoObjects(); selId=null; syncInspector();
+  $('modal').style.display='none'; toast('demo loaded — hit ▶');
+};
+let toastT;
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.style.display='block';
+  clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none',2600);
+}
+
+/* ---------- library ---------- */
+const hasStore = typeof window.storage?.set === 'function';
+const memStore = new Map();
+const keyOf = name => 'lvl:'+encodeURIComponent(name);
+
+async function libSave(name, scene){
+  const rec = {name, scene: scene||'', savedAt: Date.now(), level};
+  if(hasStore){
+    try{ await window.storage.set(keyOf(name), JSON.stringify(rec)); return true; }
+    catch{ toast('save failed'); return false; }
+  }
+  memStore.set(keyOf(name), JSON.stringify(rec)); return true;
+}
+async function libAll(){
+  const out=[];
+  if(hasStore){
+    try{
+      const res = await window.storage.list('lvl:');
+      for(const k of (res?.keys||[])){
+        try{ const g=await window.storage.get(k); if(g) out.push(JSON.parse(g.value)); }catch{}
+      }
+    }catch{}
+  }else{
+    for(const v of memStore.values()) out.push(JSON.parse(v));
+  }
+  out.sort((a,b)=>b.savedAt-a.savedAt);
+  return out;
+}
+async function libDelete(name){
+  if(hasStore){ try{ await window.storage.delete(keyOf(name)); }catch{} }
+  else memStore.delete(keyOf(name));
+}
+$('b-lib').onclick=async()=>{
+  $('sv-name').value = level.meta.name!=='untitled' ? level.meta.name : '';
+  $('sv-scene').value = level.meta.scene||'';
+  $('lmodal').style.display='flex';
+  await renderLib();
+  if(!hasStore) toast('no persistent storage in this preview — saves last for this session only');
+};
+$('l-close').onclick=()=>$('lmodal').style.display='none';
+$('sv-go').onclick=async()=>{
+  const name=$('sv-name').value.trim();
+  if(!name){ toast('give it a name'); return; }
+  level.meta.name=name;
+  level.meta.scene=$('sv-scene').value.trim();
+  if(await libSave(name, level.meta.scene)){ toast('saved: '+name); await renderLib(); }
+};
+async function renderLib(){
+  const list=$('lib-list');
+  list.innerHTML='';
+  const all=await libAll();
+  if(!all.length){
+    list.innerHTML='<div style="color:var(--dim);font-size:12px">nothing saved yet — name the current level above and Save.</div>';
+    return;
+  }
+  const scenes=new Map();
+  for(const r of all){
+    const s=r.scene||'(no scene)';
+    if(!scenes.has(s)) scenes.set(s,[]);
+    scenes.get(s).push(r);
+  }
+  for(const [scene,recs] of scenes){
+    const wrap=document.createElement('div'); wrap.className='scene';
+    wrap.innerHTML=`<h3>${scene.toUpperCase()}</h3>`;
+    const cards=document.createElement('div'); cards.className='cards';
+    for(const r of recs){
+      const card=document.createElement('div'); card.className='card';
+      const th=document.createElement('canvas'); th.width=300; th.height=169;
+      card.appendChild(th);
+      const nm=document.createElement('div'); nm.className='nm'; nm.textContent=r.name;
+      card.appendChild(nm);
+      const rm=document.createElement('button'); rm.className='rm'; rm.textContent='✕';
+      rm.addEventListener('click', async ev=>{
+        ev.stopPropagation();
+        await libDelete(r.name); await renderLib(); toast('deleted: '+r.name);
+      });
+      card.appendChild(rm);
+      try{ renderThumb(th, r.level); }catch{}
+      card.addEventListener('click', ()=>{
+        snap();
+        level=JSON.parse(JSON.stringify(r.level));
+        let mx=0; for(const o of level.objects){const n=parseInt(String(o.id).slice(1)); if(n>mx)mx=n;}
+        idSeq=mx+1; selId=null; syncInspector();
+        $('lmodal').style.display='none'; toast('loaded: '+r.name);
+      });
+      cards.appendChild(card);
+    }
+    wrap.appendChild(cards);
+    list.appendChild(wrap);
+  }
+}
+
+/* ---------- play mode: Matter.js ---------- */
+const {Engine, Bodies, Body, Composite, Events, Sleeping} = Matter;
+let mode='edit', engine=null, bodyOf=new Map(), movers=[], broken=new Set();
+let ball=null, ballState='loaded', pull=null, targetsLeft=0, playT=0;
+
+function startPlay(){
+  mode='play'; selId=null; setArmed(null);
+  resetView();
+  syncInspector();
+  $('b-play').textContent='■'; $('playhint').style.display='block';
+  $('banner').style.display='none';
+  $('tray').style.display='none'; $('inspector').style.display='none';
+  setTimeout(resize,80);
+
+  engine = Engine.create({enableSleeping:true});
+  engine.gravity.y = level.meta.gravity ?? 1;
+  bodyOf.clear(); movers=[]; broken=new Set(); playT=0;
+
+  Composite.add(engine.world,[
+    Bodies.rectangle(WORLD.w/2, FLOOR_Y+(WORLD.h-FLOOR_Y)/2+40, WORLD.w+400, WORLD.h-FLOOR_Y+80, {isStatic:true}),
+    Bodies.rectangle(-40, WORLD.h/2, 80, WORLD.h*3, {isStatic:true}),
+    Bodies.rectangle(WORLD.w+40, WORLD.h/2, 80, WORLD.h*3, {isStatic:true}),
+  ]);
+
+  targetsLeft=0;
+  for(const o of level.objects){
+    const m=MATERIALS[o.material];
+    const opts={density:m.density, friction:m.friction, restitution:m.restitution,
+                angle:(o.angle||0)/DEG, isStatic: !!o.anchored || !!o.path};
+    let b;
+    if(o.shape==='box') b=Bodies.rectangle(o.x,o.y,o.w,o.h,opts);
+    else if(o.shape==='tri') b=Bodies.fromVertices(o.x,o.y,[triVerts(o)],opts);
+    else b=Bodies.circle(o.x,o.y,o.r,opts);
+    b.plugin={lvlId:o.id, material:o.material, breakAt:m.breakAt, melt:1};
+    bodyOf.set(o.id,b);
+    Composite.add(engine.world,b);
+    if(o.path) movers.push({b, o, len:Math.hypot(o.path.x-o.x,o.path.y-o.y)});
+    if(o.material==='target') targetsLeft++;
+  }
+
+  Events.on(engine,'collisionStart', ev=>{
+    if(playT<SETTLE_MS) return; // settle grace: placed pieces land quietly
+    for(const pair of ev.pairs){
+      const speed = Math.hypot(
+        pair.bodyA.velocity.x-pair.bodyB.velocity.x,
+        pair.bodyA.velocity.y-pair.bodyB.velocity.y);
+      tryBreak(pair.bodyA, pair.bodyB, speed);
+      tryBreak(pair.bodyB, pair.bodyA, speed);
+    }
+  });
+  loadBall();
+}
+function tryBreak(b, other, speed){
+  if(!b.plugin || b.plugin.breakAt==null || broken.has(b.plugin.lvlId)) return;
+  const impact = other.isStatic
+    ? speed * 0.55                                   // hitting floor/walls/anchored
+    : speed * Math.min(other.mass,10) * 0.3;         // hit by a moving mass
+  if(impact > b.plugin.breakAt) breakBody(b);
+}
+function breakBody(b){
+  broken.add(b.plugin.lvlId);
+  Composite.remove(engine.world, b);
+  if(b.plugin.material==='target'){
+    targetsLeft--;
+    if(targetsLeft<=0){$('banner').textContent='LEVEL CLEAR'; $('banner').style.display='block';}
+  }
+}
+function loadBall(){
+  ball = Bodies.circle(level.slingshot.x, level.slingshot.y-30, 22,
+    {density:0.0016, friction:0.6, restitution:0.5});
+  Body.setStatic(ball,true);
+  Composite.add(engine.world,ball);
+  ballState='loaded'; pull=null;
+}
+function playPointerDown(p){
+  if(ballState==='loaded' && near(p, ball.position.x, ball.position.y, 140)) pull=p;
+}
+function playPointerMove(p){ if(pull) pull=p; }
+function playPointerUp(){
+  if(!pull || ballState!=='loaded'){pull=null; return;}
+  const ax=level.slingshot.x, ay=level.slingshot.y-30;
+  let dx=ax-pull.x, dy=ay-pull.y;
+  const d=Math.hypot(dx,dy);
+  if(d<12){pull=null; return;}
+  const cap=Math.min(d,200)/d;
+  Body.setStatic(ball,false);
+  Sleeping.set(ball,false);
+  Body.setVelocity(ball,{x:dx*cap*0.16, y:dy*cap*0.16});
+  ballState='flying'; pull=null;
+  setTimeout(()=>{ if(mode==='play') loadBall(); }, 3800);
+}
+function stopPlay(){
+  mode='edit'; engine=null; ball=null;
+  $('b-play').textContent='▶'; $('playhint').style.display='none';
+  $('banner').style.display='none';
+  $('tray').style.display='flex'; $('inspector').style.display='flex';
+  setTimeout(resize,80);
+}
+$('b-play').onclick=()=> mode==='edit' ? startPlay() : stopPlay();
+
+function drawPlay(dt){
+  playT+=dt;
+  for(const mv of movers){
+    if(mv.len<2) continue;
+    const period = (mv.len*2)/(mv.o.path.speed||90);
+    const t=(playT/1000)%period, half=period/2;
+    const k = t<half ? t/half : 1-(t-half)/half;
+    const nx=mv.o.x+(mv.o.path.x-mv.o.x)*k, ny=mv.o.y+(mv.o.path.y-mv.o.y)*k;
+    Body.setVelocity(mv.b,{x:(nx-mv.b.position.x)/(dt/1000||1), y:(ny-mv.b.position.y)/(dt/1000||1)});
+    Body.setPosition(mv.b,{x:nx,y:ny});
+  }
+  /* ice melts */
+  for(const [id,b] of bodyOf){
+    if(broken.has(id) || b.plugin.material!=='ice') continue;
+    Body.scale(b, MELT_K, MELT_K);
+    b.plugin.melt *= MELT_K;
+    if(b.plugin.melt < 0.3) breakBody(b);
+  }
+  Engine.update(engine, Math.min(dt,33));
+
+  drawWorldBase();
+  drawSlingshotCtx(ctx, level.slingshot.x, level.slingshot.y, false);
+  for(const o of level.objects){
+    if(broken.has(o.id)) continue;
+    const b=bodyOf.get(o.id);
+    drawMaterialCtx(ctx, {...o, x:b.position.x, y:b.position.y, angle:b.angle*DEG, note:''}, false, b.plugin.melt);
+  }
+  const ax=level.slingshot.x, ay=level.slingshot.y-26;
+  if(ball){
+    let bx=ball.position.x, by=ball.position.y;
+    if(pull && ballState==='loaded'){
+      const d=Math.hypot(ax-pull.x, ay-pull.y), cap=Math.min(d,200)/(d||1);
+      bx=ax-(ax-pull.x)*cap; by=ay-(ay-pull.y)*cap;
+      Body.setPosition(ball,{x:bx,y:by});
+      ctx.strokeStyle='#5a3a22'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(ax-22,ay); ctx.lineTo(bx,by); ctx.lineTo(ax+22,ay); ctx.stroke();
+      const vx=(ax-bx)*0.16, vy=(ay-by)*0.16;
+      ctx.fillStyle='rgba(255,138,61,.7)';
+      for(let i=1;i<=9;i++){
+        const t=i*0.09;
+        ctx.beginPath();
+        ctx.arc(bx+vx*t*60, by+vy*t*60+0.5*(engine.gravity.y*0.001*Math.pow(t*60,2))*16.66, 4,0,7);
+        ctx.fill();
+      }
+    }
+    drawMaterialCtx(ctx, {shape:'circle', x:bx, y:by, r:22, angle:ball.angle*DEG, material:'rubber', note:''}, false);
+  }
+  ctx.fillStyle='#7d8ea3'; ctx.font='16px ui-monospace,monospace'; ctx.textAlign='left';
+  ctx.fillText('targets: '+Math.max(0,targetsLeft), 20, 34);
+  ctx.restore();
+}
+
+/* ---------- main loop ---------- */
+let last=performance.now();
+function frame(now){
+  const dt=now-last; last=now;
+  if(mode==='edit'){ drawEdit(); if(gesture) syncReadout(); }
+  else drawPlay(dt);
+  requestAnimationFrame(frame);
+}
+resize();
+syncHistoryBtns();
+syncInspector();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

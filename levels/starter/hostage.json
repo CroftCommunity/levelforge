@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.4",
+  "meta": {
+    "name": "hostage",
+    "scene": "starter",
+    "gravity": 1,
+    "note": "v0.4 showcase. Break the green target but spare the blue protect target below it. The two stone planks are welded into one rigid shelf."
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 230, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "box", "x": 980, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (left half)", "weld": "shelf" },
+    { "id": "o2", "shape": "box", "x": 1180, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (right half)", "weld": "shelf" },
+    { "id": "o3", "shape": "circle", "x": 1080, "y": 660, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "destroy this", "role": "destroy" },
+    { "id": "o4", "shape": "circle", "x": 1080, "y": 800, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "PROTECT this — breaking it fails the level", "role": "protect" }
+  ]
+}

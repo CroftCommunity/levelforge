@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>LEVELFORGE · schema v0.4</title>
+    <meta name="description" content="Touch-first 2D physics level editor and test bed." />
+    <meta name="theme-color" content="#0f1722" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <style>
+      :root {
+        --bg: #0f1722;
+        --panel: #16212f;
+        --line: #233348;
+        --ink: #d8e2ef;
+        --dim: #7d8ea3;
+        --accent: #ff8a3d;
+        --accent-dn: #e06f24;
+        --viewblue: #5aa2e6;
+        --wood: #b5824c;
+        --stone: #8e939c;
+        --metal: #a9b6c4;
+        --ice: #9fd6ea;
+        --rubber: #d94f5c;
+        --target: #7bc86c;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        inset: 0;
+        touch-action: none;
+      }
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        color: var(--ink);
+        background: #1d2c40;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 11px;
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      button:disabled {
+        opacity: 0.35;
+      }
+      button.accent {
+        background: var(--accent);
+        border-color: var(--accent-dn);
+        color: #1a1005;
+        font-weight: 700;
+      }
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+      input[type='text'] {
+        font-family: inherit;
+        font-size: 13px;
+        color: var(--ink);
+        background: #0b1119;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 10px;
+      }
+      #topbar {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 8px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        flex: none;
+      }
+      #topbar .brand {
+        font-size: 9px;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        line-height: 1.25;
+        margin-right: auto;
+      }
+      #topbar .brand b {
+        color: var(--ink);
+        font-weight: 600;
+        font-size: 10.5px;
+      }
+      #undo,
+      #redo {
+        font-size: 16px;
+        padding: 7px 10px;
+      }
+      #main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+      }
+      #stage {
+        flex: 1;
+        position: relative;
+        min-height: 0;
+        min-width: 0;
+        order: 1;
+      }
+      #tray {
+        order: 2;
+      }
+      #inspector {
+        order: 3;
+      }
+      canvas#cv {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #banner {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--accent);
+        color: #1a1005;
+        font-weight: 700;
+        font-size: 15px;
+        padding: 8px 18px;
+        border-radius: 10px;
+        display: none;
+        pointer-events: none;
+        letter-spacing: 0.08em;
+      }
+      #banner.fail {
+        background: #d94f5c;
+        color: #200a0d;
+      }
+      #playhint {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: var(--dim);
+        font-size: 12px;
+        display: none;
+        pointer-events: none;
+        background: rgba(15, 23, 34, 0.7);
+        padding: 4px 10px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      #resetbtn {
+        position: absolute;
+        bottom: 44px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        z-index: 5;
+      }
+      #tray {
+        display: flex;
+        gap: 7px;
+        padding: 6px 8px;
+        overflow-x: auto;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        scrollbar-width: none;
+        flex: none;
+        align-items: stretch;
+        justify-content: center;
+      }
+      #tray::-webkit-scrollbar {
+        display: none;
+      }
+      .preset {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        background: #1d2c40;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 6px 10px;
+        font-size: 10px;
+        color: var(--dim);
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+        min-width: 56px;
+      }
+      .preset.on {
+        border-color: var(--accent);
+        background: #33261a;
+        color: var(--ink);
+      }
+      .preset.viewon {
+        border-color: var(--viewblue);
+        background: #16283c;
+        color: #cfe4ff;
+      }
+      .preset:active {
+        transform: translateY(1px);
+      }
+      .preset .ico {
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      }
+      .preset .shp {
+        border: 1px solid rgba(0, 0, 0, 0.4);
+      }
+      #handrow {
+        display: flex;
+        gap: 5px;
+        flex: none;
+      }
+      #handrow .preset {
+        min-width: 44px;
+        padding: 6px 6px;
+      }
+      body.land #handrow {
+        flex-direction: row;
+        width: 100%;
+      }
+      body.land #handrow .preset {
+        flex: 1;
+      }
+      #inspector {
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        padding: 6px 8px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: none;
+      }
+      #hint {
+        color: var(--dim);
+        font-size: 11px;
+        line-height: 1.45;
+        text-align: center;
+      }
+      .row {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+      }
+      .swwrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        cursor: pointer;
+      }
+      .sw {
+        width: 34px;
+        height: 28px;
+        border-radius: 8px;
+        flex: none;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+      }
+      .swwrap span {
+        font-size: 8.5px;
+        color: var(--dim);
+        letter-spacing: 0.04em;
+      }
+      .swwrap.on .sw {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(255, 138, 61, 0.35);
+      }
+      .swwrap.on span {
+        color: var(--ink);
+      }
+      .chip {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #1d2c40;
+        border: 1px solid var(--line);
+        cursor: pointer;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .chip.tgl.on {
+        border-color: #6fa9e6;
+        background: #1b2c42;
+        color: #cfe4ff;
+      }
+      #del {
+        color: #ff9d9d;
+        border-color: #5a2c34;
+        background: #2b1a20;
+        padding: 8px 11px;
+      }
+      #readout {
+        font-size: 10.5px;
+        color: var(--dim);
+      }
+      body.land #main {
+        flex-direction: row;
+      }
+      body.land #tray {
+        order: 0;
+        flex-direction: column;
+        overflow-y: auto;
+        overflow-x: hidden;
+        width: 84px;
+        border-top: none;
+        border-right: 1px solid var(--line);
+        padding: 6px 5px;
+        justify-content: flex-start;
+      }
+      body.land #stage {
+        order: 1;
+      }
+      body.land #inspector {
+        order: 2;
+        width: 132px;
+        border-top: none;
+        border-left: 1px solid var(--line);
+        overflow-y: auto;
+        justify-content: flex-start;
+      }
+      body.land .preset {
+        width: 100%;
+        min-width: 0;
+      }
+      body.land .chip {
+        width: 100%;
+        justify-content: center;
+      }
+      body.land #readout {
+        width: 100%;
+        text-align: center;
+      }
+      body.land #hint {
+        font-size: 10.5px;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 18, 0.93);
+        z-index: 20;
+        display: none;
+        flex-direction: column;
+        padding: 14px;
+        gap: 10px;
+        overflow-y: auto;
+      }
+      .modal h2 {
+        font-size: 11px;
+        letter-spacing: 0.13em;
+        color: var(--dim);
+        font-weight: 600;
+        line-height: 1.6;
+        flex: none;
+      }
+      .modal textarea {
+        flex: 1;
+        background: #0b1119;
+        color: #bfe0a8;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        font-family: inherit;
+        font-size: 12px;
+        resize: none;
+        line-height: 1.5;
+        min-height: 120px;
+      }
+      #json {
+        white-space: pre;
+      }
+      #err {
+        color: #ff9d9d;
+        font-size: 11px;
+        min-height: 14px;
+        flex: none;
+      }
+      #notetext {
+        white-space: pre-wrap;
+        color: var(--ink);
+        font-size: 14px;
+        max-height: 38vh;
+      }
+      .modal .row {
+        justify-content: flex-end;
+        flex: none;
+      }
+      #n-mic.rec {
+        background: #5a1f28;
+        border-color: #a33;
+        color: #ffb0b0;
+      }
+      #lib-save {
+        justify-content: flex-start;
+      }
+      #lib-save input {
+        flex: 1;
+        min-width: 90px;
+      }
+      #lib-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .scene h3 {
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        color: var(--dim);
+        margin-bottom: 6px;
+      }
+      .cards {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .card {
+        flex: none;
+        width: 150px;
+        background: #121c29;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+        position: relative;
+      }
+      .card canvas {
+        display: block;
+        width: 100%;
+        height: 84px;
+        background: #101a27;
+      }
+      .card .nm {
+        font-size: 11px;
+        padding: 6px 8px;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .card .badge {
+        position: absolute;
+        top: 4px;
+        left: 4px;
+        background: rgba(20, 30, 45, 0.85);
+        color: var(--dim);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-size: 9px;
+        padding: 2px 6px;
+        letter-spacing: 0.06em;
+      }
+      .card .rm {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        background: rgba(20, 10, 12, 0.8);
+        color: #ff9d9d;
+        border: 1px solid #5a2c34;
+        border-radius: 6px;
+        font-size: 11px;
+        padding: 2px 7px;
+      }
+      #epicks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        flex: none;
+      }
+      #epicks button {
+        font-size: 22px;
+        padding: 8px 10px;
+      }
+      #erow {
+        justify-content: center;
+      }
+      #einput {
+        font-size: 22px;
+        width: 90px;
+        text-align: center;
+      }
+      #toast {
+        position: fixed;
+        bottom: 90px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #2c4460;
+        color: #fff;
+        font-size: 12px;
+        padding: 8px 14px;
+        border-radius: 8px;
+        display: none;
+        z-index: 40;
+        text-align: center;
+        max-width: 86vw;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="topbar">
+      <button id="undo" title="undo">↶</button>
+      <div class="brand"><b>LEVELFORGE</b><br />schema v0.4</div>
+      <button id="b-schema" title="schema JSON">{ }</button>
+      <button id="b-lib" title="library">💾</button>
+      <button id="b-play" class="accent" title="test">▶</button>
+      <button id="redo" title="redo">↷</button>
+    </div>
+
+    <div id="main">
+      <div id="stage">
+        <canvas id="cv"></canvas>
+        <div id="banner">LEVEL CLEAR</div>
+        <button id="resetbtn">↺ reset</button>
+        <div id="playhint">drag the ball back · release to launch</div>
+      </div>
+
+      <div id="tray"></div>
+
+      <div id="inspector">
+        <div class="row" id="matrow">
+          <span class="swwrap" data-m="wood"
+            ><span class="sw" style="background: var(--wood)"></span><span>wood</span></span
+          >
+          <span class="swwrap" data-m="stone"
+            ><span class="sw" style="background: var(--stone)"></span><span>stone</span></span
+          >
+          <span class="swwrap" data-m="metal"
+            ><span class="sw" style="background: var(--metal)"></span><span>metal</span></span
+          >
+          <span class="swwrap" data-m="ice"
+            ><span class="sw" style="background: var(--ice)"></span><span>ice</span></span
+          >
+          <span class="swwrap" data-m="rubber"
+            ><span class="sw" style="background: var(--rubber)"></span><span>rubber</span></span
+          >
+          <span class="swwrap" data-m="target"
+            ><span class="sw" style="background: var(--target)"></span><span>target</span></span
+          >
+        </div>
+        <div id="hint">
+          ✋ tap=select · drag=move (lifts above your finger) · pinch=resize · twist=rotate. 🔍 pinch
+          zooms, drag pans, double-tap resets. Gravity only in ▶. Ice melts in Test.
+        </div>
+        <div id="selwrap" style="display: none">
+          <div class="row">
+            <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
+            <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
+            <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
+            <span class="chip tgl" id="tg-protect" title="protect target (hostage)" style="display: none"
+              >🛡️</span
+            >
+            <button id="del" title="delete">✕</button>
+            <span id="readout"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal">
+      <h2>
+        LEVEL SCHEMA — the contract between you and Claude.<br />
+        <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with
+        JSON pasted in.
+      </h2>
+      <textarea id="json" spellcheck="false"></textarea>
+      <div id="err"></div>
+      <div class="row">
+        <button id="m-demo">Demo</button>
+        <button id="m-clear">Clear level</button>
+        <button id="m-download">Download</button>
+        <button id="m-copy">Copy</button>
+        <button id="m-load">Paste &amp; Load</button>
+        <button id="m-close" class="accent">Close</button>
+      </div>
+    </div>
+
+    <div class="modal" id="nmodal">
+      <h2>NOTE — intent, in your words. 🎤 tries in-browser transcription. Text rides in the schema.</h2>
+      <textarea
+        id="notetext"
+        placeholder="e.g. this tower should topple left when the top stone falls…"
+      ></textarea>
+      <div class="row">
+        <button id="n-mic">🎤 dictate</button>
+        <button id="n-cancel">Cancel</button>
+        <button id="n-save" class="accent">Save note</button>
+      </div>
+    </div>
+
+    <div class="modal" id="emodal">
+      <h2>
+        EMOJI STAMP — places as a round physics body in the current material.<br />
+        stone 🎃 is heavy · rubber 🦆 bounces · ice 😶‍🌫️ melts.
+      </h2>
+      <div id="epicks"></div>
+      <div class="row" id="erow">
+        <input type="text" id="einput" placeholder="🙂" maxlength="4" />
+        <button id="e-set" class="accent">Use</button>
+        <button id="e-close">Close</button>
+      </div>
+    </div>
+
+    <div class="modal" id="lmodal">
+      <h2>LIBRARY — committed levels and your local drafts, grouped by scene. Tap a card to load.</h2>
+      <div class="row" id="lib-save">
+        <input type="text" id="sv-name" placeholder="level name" />
+        <input type="text" id="sv-scene" placeholder="scene (optional)" />
+        <button id="sv-go" class="accent">Save draft</button>
+      </div>
+      <div id="lib-list"></div>
+      <div class="row"><button id="l-close" class="accent">Close</button></div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

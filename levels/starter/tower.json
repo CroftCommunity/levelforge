@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "0.4",
+  "meta": {
+    "name": "tower",
+    "scene": "starter",
+    "gravity": 1,
+    "note": "A gentle first level. Knock the tower and pop the target. Aim over the stone ramp."
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 230, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "tri", "x": 700, "y": 825, "w": 120, "h": 90, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "deflector ramp" },
+    { "id": "o2", "shape": "box", "x": 1100, "y": 820, "w": 30, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o3", "shape": "box", "x": 1240, "y": 820, "w": 30, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o4", "shape": "box", "x": 1170, "y": 765, "w": 220, "h": 26, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "the lintel — topple this" },
+    { "id": "o5", "shape": "circle", "x": 1170, "y": 730, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "pop me to clear the level" },
+    { "id": "o6", "shape": "emoji", "x": 1170, "y": 620, "r": 28, "angle": 0, "material": "wood", "emoji": "🎃", "anchored": false, "path": null, "note": "" }
+  ]
+}
