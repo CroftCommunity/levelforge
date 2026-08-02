@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#16212f"/>
+  <rect x="10" y="10" width="492" height="492" rx="0" fill="none" stroke="#233348" stroke-width="20"/>
+  <!-- isoceles wedge, apex up (the app's 'tri' shape) -->
+  <polygon points="97,375 415,375 256,120" fill="#ff8a3d"/>
+</svg>
