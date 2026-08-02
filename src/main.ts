@@ -980,6 +980,9 @@ function syncInspector(): void {
   $('tg-move').classList.toggle('on', !!sel.path);
   $('tg-note').classList.toggle('on', !!sel.note);
   $('tg-weld').classList.toggle('on', !!sel.group);
+  const sprite = $('tg-sprite');
+  sprite.style.display = sel.shape === 'emoji' ? 'flex' : 'none';
+  sprite.classList.toggle('on', !!sel.sprite);
   const protect = $('tg-protect');
   protect.style.display = sel.material === 'target' ? 'flex' : 'none';
   protect.classList.toggle('on', sel.role === 'protect');
@@ -1057,6 +1060,34 @@ $('tg-weld').onclick = () => {
   syncInspector();
   toast('welded — they move as one rigid piece in Test');
 };
+$('tg-sprite').onclick = () => {
+  const s = selected();
+  if (!s || s.shape !== 'emoji') return;
+  if (s.sprite) {
+    snap();
+    delete s.sprite;
+    syncInspector();
+    toast('sprite removed — back to the emoji glyph');
+    return;
+  }
+  $<HTMLInputElement>('sprite-file').click();
+};
+$<HTMLInputElement>('sprite-file').addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const f = input.files && input.files[0];
+  input.value = '';
+  const s = selected();
+  if (!f || !s || s.shape !== 'emoji') return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    snap();
+    s.sprite = String(rd.result);
+    syncInspector();
+    toast(String(rd.result).length > 2000000 ? 'sprite set — heads up: big images make the schema JSON heavy' : 'sprite set — the image skins this piece');
+  };
+  rd.onerror = () => toast('could not read that image');
+  rd.readAsDataURL(f);
+});
 $('del').onclick = () => {
   if (!selId) return;
   snap();

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "0.8",
+  "meta": {
+    "name": "shatter",
+    "scene": "arcade",
+    "gravity": 1,
+    "note": "Fracture showcase. The painted wood crates shatter into scattering chunks when your hero hits hard enough — break through them to reach the villain behind.",
+    "hero": "🪨",
+    "background": "desert",
+    "backgroundImage": null,
+    "mode": "slingshot",
+    "goal": null
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 230, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "blob", "x": 1040, "y": 800, "angle": 0, "material": "wood", "anchored": false, "path": null, "brushR": 26, "pts": [[-50, 40], [-20, 40], [10, 40], [40, 40], [-50, 0], [-20, 0], [10, 0], [40, 0]], "note": "wood crate — shatters on impact" },
+    { "id": "o2", "shape": "blob", "x": 1040, "y": 700, "angle": 0, "material": "wood", "anchored": false, "path": null, "brushR": 24, "pts": [[-40, 30], [-10, 30], [20, 30], [-40, 0], [-10, 0], [20, 0]], "note": "another crate" },
+    { "id": "o3", "shape": "emoji", "x": 1320, "y": 822, "r": 28, "angle": 0, "material": "target", "emoji": "🤖", "anchored": false, "path": null, "note": "villain behind the crates" }
+  ]
+}

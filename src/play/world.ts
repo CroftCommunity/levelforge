@@ -10,14 +10,19 @@
    ===================================================================== */
 
 import Matter from 'matter-js';
-import { Level, LevelObject } from '../schema';
-import { MATERIALS } from '../materials';
+import { Level, LevelObject, BlobPoint, BRUSH_DEFAULT } from '../schema';
+import { MATERIALS, MaterialKey } from '../materials';
 import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
 import { impactOf, breaksAt } from './break-model';
 import { makeMatterBody } from './bodies';
 import { behaviorFor, EXPLOSION } from './behaviors';
+import { fragmentPlacements } from './fracture';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
+
+const FRAGMENT_LIFE_MS = 2200;
+const FRAGMENT_FADE_MS = 700;
+const MAX_FRAGMENTS = 24;
 
 const SETTLE_MS = 500;
 const MELT_K = 0.9985;
@@ -37,6 +42,15 @@ interface BodyPlugin {
   melt: number;
   /** Detonates nearby bodies when this one breaks (e.g. 💣). */
   explode: boolean;
+  /** Present for a solo blob, so it can shatter into fragments on break. */
+  blob?: { pts: BlobPoint[]; brushR: number; material: MaterialKey };
+}
+
+interface Fragment {
+  b: Matter.Body;
+  material: MaterialKey;
+  r: number;
+  bornT: number;
 }
 
 interface Mover {
@@ -60,6 +74,7 @@ export class PlaySession {
   private pull: { x: number; y: number } | null = null;
   private destroyLeft = 0;
   private playT = 0;
+  private fragments: Fragment[] = [];
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private collisionHandler: CollisionHandler | null = null;
   status: PlayStatus = 'playing';
@@ -116,13 +131,18 @@ export class PlaySession {
   private pluginFor(members: LevelObject[]): BodyPlugin {
     const numeric = members.map((o) => MATERIALS[o.material].breakAt).filter((v): v is number => v != null);
     const breakAt = numeric.length ? Math.min(...numeric) : null;
-    return {
+    const plugin: BodyPlugin = {
       lvlIds: members.map((o) => o.id),
       breakAt,
       isIce: members.length === 1 && members[0].material === 'ice',
       melt: 1,
       explode: members.some((o) => behaviorFor(o) === 'explode'),
     };
+    const solo = members.length === 1 ? members[0] : null;
+    if (solo && solo.shape === 'blob' && solo.pts && solo.pts.length) {
+      plugin.blob = { pts: solo.pts, brushR: solo.brushR ?? BRUSH_DEFAULT, material: solo.material };
+    }
+    return plugin;
   }
 
   private registerTop(top: Matter.Body, members: LevelObject[]): void {
@@ -166,6 +186,8 @@ export class PlaySession {
     const p = top.plugin as BodyPlugin;
     if (p.lvlIds.every((id) => this.broken.has(id))) return;
     const at = { x: top.position.x, y: top.position.y };
+    const angle = top.angle;
+    const vel = { x: top.velocity.x, y: top.velocity.y };
     for (const id of p.lvlIds) this.broken.add(id);
     Composite.remove(this.engine.world, top);
     for (const o of this.level.objects) {
@@ -174,7 +196,28 @@ export class PlaySession {
       else this.destroyLeft--;
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
+    if (p.blob) this.fractureBlob(p.blob, at, angle, vel);
     if (p.explode) this.explodeAt(at.x, at.y);
+  }
+
+  /** Shatter a broken blob into scattering fragment bodies. */
+  private fractureBlob(blob: { pts: BlobPoint[]; brushR: number; material: MaterialKey }, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }): void {
+    const m = MATERIALS[blob.material];
+    for (const f of fragmentPlacements(blob.pts, blob.brushR, at, angle, MAX_FRAGMENTS)) {
+      const b = Bodies.circle(f.x, f.y, f.r, { density: m.density, friction: m.friction, restitution: Math.min(0.5, m.restitution + 0.15) });
+      // scatter outward from the centre, plus the parent's momentum and jitter
+      const dx = f.x - at.x;
+      const dy = f.y - at.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const spread = 3 + Math.random() * 3;
+      Body.setVelocity(b, {
+        x: vel.x * 0.5 + (dx / d) * spread + (Math.random() - 0.5) * 3,
+        y: vel.y * 0.5 + (dy / d) * spread - Math.random() * 3,
+      });
+      Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4);
+      Composite.add(this.engine.world, b);
+      this.fragments.push({ b, material: blob.material, r: f.r, bornT: this.playT });
+    }
   }
 
   /** Shove nearby bodies and detonate breakable ones within lethal range. */
@@ -266,10 +309,35 @@ export class PlaySession {
       if (p.melt < MELT_MIN) this.breakBody(b);
     }
     Engine.update(this.engine, Math.min(dt, 33));
+    // retire spent fragments
+    if (this.fragments.length) {
+      const alive: Fragment[] = [];
+      for (const f of this.fragments) {
+        if (this.playT - f.bornT > FRAGMENT_LIFE_MS) Composite.remove(this.engine.world, f.b);
+        else alive.push(f);
+      }
+      this.fragments = alive;
+    }
   }
 
   render(ctx: CanvasRenderingContext2D): void {
     drawSlingshotCtx(ctx, this.level.slingshot.x, this.level.slingshot.y, false);
+
+    // blob shatter debris (drawn under the pieces)
+    for (const f of this.fragments) {
+      const age = this.playT - f.bornT;
+      const fade = age > FRAGMENT_LIFE_MS - FRAGMENT_FADE_MS ? Math.max(0, (FRAGMENT_LIFE_MS - age) / FRAGMENT_FADE_MS) : 1;
+      ctx.save();
+      ctx.globalAlpha = fade * (f.material === 'ice' ? 0.82 : 1);
+      ctx.fillStyle = MATERIALS[f.material].color;
+      ctx.strokeStyle = 'rgba(0,0,0,.3)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(f.b.position.x, f.b.position.y, f.r, 0, 7);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
 
     for (const o of this.level.objects) {
       if (this.broken.has(o.id)) continue;
