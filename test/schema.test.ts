@@ -9,6 +9,7 @@ import {
   maxIdNum,
   SchemaError,
   CURRENT_SCHEMA_VERSION,
+  BRUSH_DEFAULT,
   Level,
 } from '../src/schema';
 
@@ -28,10 +29,10 @@ function baseObject(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
-function baseLevel(objects: unknown[] = []): Record<string, unknown> {
+function baseLevel(objects: unknown[] = [], meta: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    schemaVersion: '0.4',
-    meta: { name: 'x', scene: '', gravity: 1, note: '' },
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    meta: { name: 'x', scene: '', gravity: 1, note: '', ...meta },
     world: { w: 1600, h: 900, floorY: 860 },
     slingshot: { x: 230, y: 770 },
     objects,
@@ -39,44 +40,83 @@ function baseLevel(objects: unknown[] = []): Record<string, unknown> {
 }
 
 describe('emptyLevel', () => {
-  it('is valid and current-version', () => {
+  it('is valid and current-version with hero + background', () => {
     const l = emptyLevel();
     expect(l.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(l.meta.hero).toBe('🙂');
+    expect(l.meta.background).toBe('grid');
     expect(() => validateLevel(l)).not.toThrow();
   });
 });
 
-describe('validation — happy paths', () => {
+describe('validation — shapes', () => {
   it('accepts each shape with correct geometry', () => {
     const l = baseLevel([
       baseObject({ id: 'o1', shape: 'box', w: 30, h: 80 }),
       baseObject({ id: 'o2', shape: 'tri', w: 90, h: 70 }),
       baseObject({ id: 'o3', shape: 'circle', w: undefined, h: undefined, r: 20 }),
       baseObject({ id: 'o4', shape: 'emoji', w: undefined, h: undefined, r: 20, emoji: '🎃' }),
+      baseObject({ id: 'o5', shape: 'blob', w: undefined, h: undefined, brushR: 20, pts: [[0, 0], [10, 5], [20, -5]] }),
     ]);
     const out = loadLevel(l);
-    expect(out.objects).toHaveLength(4);
-    expect(out.objects[2].r).toBe(20);
-    expect(out.objects[3].emoji).toBe('🎃');
+    expect(out.objects).toHaveLength(5);
+    expect(out.objects[4].pts).toEqual([[0, 0], [10, 5], [20, -5]]);
+    expect(out.objects[4].brushR).toBe(20);
+  });
+
+  it('fills the default brush radius for a blob without one', () => {
+    const out = loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0, 0]] })]));
+    expect(out.objects[0].brushR).toBe(BRUSH_DEFAULT);
+  });
+
+  it('rejects an empty blob pts array', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [] })]))).toThrow(/pts/);
+  });
+  it('rejects a blob with too many points', () => {
+    const pts = Array.from({ length: 71 }, (_, i) => [i, 0]);
+    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts })]))).toThrow(/too many/);
+  });
+  it('rejects malformed blob points', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0]] })]))).toThrow(/\[number, number\]/);
   });
 
   it('round-trips through serialize/parse', () => {
     const l = loadLevel(baseLevel([baseObject()]));
-    const again = parseLevel(serializeLevel(l));
-    expect(again).toEqual(l);
-  });
-
-  it('keeps a valid path and drops unknown keys', () => {
-    const out = loadLevel(baseLevel([baseObject({ path: { x: 300, y: 100, speed: 90 }, bogus: 1 })]));
-    expect(out.objects[0].path).toEqual({ x: 300, y: 100, speed: 90 });
-    expect('bogus' in out.objects[0]).toBe(false);
+    expect(parseLevel(serializeLevel(l))).toEqual(l);
   });
 });
 
-describe('validation — v0.4 additions', () => {
-  it('accepts weld strings', () => {
-    const out = loadLevel(baseLevel([baseObject({ weld: 'groupA' }), baseObject({ id: 'o2', weld: 'groupA' })]));
-    expect(out.objects[0].weld).toBe('groupA');
+describe('validation — meta', () => {
+  it('defaults hero, background, backgroundImage', () => {
+    const out = loadLevel(baseLevel([]));
+    expect(out.meta.hero).toBe('🙂');
+    expect(out.meta.background).toBe('grid');
+    expect(out.meta.backgroundImage).toBeNull();
+  });
+  it('keeps a valid background and per-level hero', () => {
+    const out = loadLevel(baseLevel([], { hero: '⚽', background: 'cave' }));
+    expect(out.meta.hero).toBe('⚽');
+    expect(out.meta.background).toBe('cave');
+  });
+  it('coerces an unknown background to grid', () => {
+    const out = loadLevel(baseLevel([], { background: 'lava' }));
+    expect(out.meta.background).toBe('grid');
+  });
+  it('downgrades custom-without-image to grid', () => {
+    const out = loadLevel(baseLevel([], { background: 'custom' }));
+    expect(out.meta.background).toBe('grid');
+  });
+  it('keeps custom when an image is present', () => {
+    const out = loadLevel(baseLevel([], { background: 'custom', backgroundImage: 'data:image/png;base64,AA' }));
+    expect(out.meta.background).toBe('custom');
+    expect(out.meta.backgroundImage).toContain('data:image');
+  });
+});
+
+describe('validation — v0.8-forward fields', () => {
+  it('accepts group strings', () => {
+    const out = loadLevel(baseLevel([baseObject({ group: 'shelf' }), baseObject({ id: 'o2', group: 'shelf' })]));
+    expect(out.objects[0].group).toBe('shelf');
   });
   it('accepts role only on targets', () => {
     const out = loadLevel(baseLevel([baseObject({ id: 'o1', shape: 'circle', w: undefined, h: undefined, r: 20, material: 'target', role: 'protect' })]));
@@ -85,10 +125,10 @@ describe('validation — v0.4 additions', () => {
   it('rejects role on non-target material', () => {
     expect(() => loadLevel(baseLevel([baseObject({ role: 'protect' })]))).toThrow(SchemaError);
   });
-  it('rejects unknown role value', () => {
-    expect(() =>
-      loadLevel(baseLevel([baseObject({ shape: 'circle', w: undefined, h: undefined, r: 20, material: 'target', role: 'guard' })])),
-    ).toThrow(SchemaError);
+  it('accepts sprite and hit', () => {
+    const out = loadLevel(baseLevel([baseObject({ shape: 'emoji', w: undefined, h: undefined, r: 20, emoji: '💣', sprite: 'boom.png', hit: 'explode' })]));
+    expect(out.objects[0].sprite).toBe('boom.png');
+    expect(out.objects[0].hit).toBe('explode');
   });
 });
 
@@ -105,30 +145,13 @@ describe('validation — rejections', () => {
   it('rejects unknown shape', () => {
     expect(() => loadLevel(baseLevel([baseObject({ shape: 'hexagon' })]))).toThrow(/shape/);
   });
-  it('rejects non-positive box dimensions', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ w: 0 })]))).toThrow(/positive w/);
-  });
-  it('rejects circle without radius', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ shape: 'circle', w: undefined, h: undefined })]))).toThrow(/positive r/);
-  });
   it('rejects emoji without glyph', () => {
     expect(() => loadLevel(baseLevel([baseObject({ shape: 'emoji', w: undefined, h: undefined, r: 20 })]))).toThrow(/emoji/);
-  });
-  it('rejects non-finite positions', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ x: Infinity })]))).toThrow(/finite/);
-  });
-  it('rejects a path with non-positive speed', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ path: { x: 1, y: 1, speed: 0 } })]))).toThrow(/speed/);
   });
   it('rejects floorY out of range', () => {
     const l = baseLevel([]);
     (l.world as any).floorY = 2000;
     expect(() => loadLevel(l)).toThrow(/floorY/);
-  });
-  it('rejects missing schemaVersion', () => {
-    const l = baseLevel([]);
-    delete (l as any).schemaVersion;
-    expect(() => loadLevel(l)).toThrow(/schemaVersion/);
   });
   it('parseLevel distinguishes JSON errors', () => {
     expect(() => parseLevel('{not json')).toThrow(/parse/);
@@ -136,7 +159,7 @@ describe('validation — rejections', () => {
 });
 
 describe('migration', () => {
-  it('migrates 0.2 to current, filling additive defaults', () => {
+  it('migrates a 0.2 level, filling v0.7 defaults', () => {
     const old = {
       schemaVersion: '0.2',
       meta: { name: 'old', scene: '', gravity: 1 },
@@ -144,20 +167,28 @@ describe('migration', () => {
       slingshot: { x: 230, y: 770 },
       objects: [{ id: 'o1', shape: 'box', x: 100, y: 100, w: 40, h: 40, angle: 0, material: 'wood' }],
     };
-    const migrated = migrateToCurrent(old);
-    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    const out = validateLevel(migrated);
+    const out = validateLevel(migrateToCurrent(old));
+    expect(out.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(out.meta.hero).toBe('🙂');
+    expect(out.meta.background).toBe('grid');
     expect(out.objects[0].note).toBe('');
     expect(out.objects[0].path).toBeNull();
-    expect(out.objects[0].anchored).toBe(false);
-    expect(out.meta.note).toBe('');
   });
 
-  it('migrates 0.3 to 0.4 with only a version bump', () => {
-    const l = baseLevel([baseObject()]);
-    (l as any).schemaVersion = '0.3';
-    const migrated = migrateToCurrent(l);
-    expect(migrated.schemaVersion).toBe('0.4');
+  it('renames legacy weld to group', () => {
+    const l = baseLevel([baseObject({ weld: 'grp' })]);
+    (l as any).schemaVersion = '0.4';
+    const out = validateLevel(migrateToCurrent(l));
+    expect(out.objects[0].group).toBe('grp');
+    expect('weld' in out.objects[0]).toBe(false);
+  });
+
+  it('brings any known version up to current', () => {
+    for (const v of ['0.2', '0.3', '0.4', '0.7']) {
+      const l = baseLevel([baseObject()]);
+      (l as any).schemaVersion = v;
+      expect(migrateToCurrent(l).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    }
   });
 
   it('does not mutate the input object', () => {

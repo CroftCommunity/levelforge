@@ -1,311 +1,201 @@
-# LEVELFORGE — Build Specification for Claude Code
+# EMOJI WARS · build spec for Claude Code
 
-This document is the contract for building the production version of LevelForge: a
-touch-first, phone-friendly 2D physics level editor and test bed, designed for
-human-and-Claude collaboration on Angry Birds / Red Ball style games. It distills
-five iterations of a working prototype (`reference/levelforge.html`, included in
-this repo) that was play-tested on a phone. Where this spec and the prototype
-disagree, this spec wins; where this spec is silent, the prototype is the
-reference behavior.
+## What this is
 
-## 1. The core idea
+Emoji Wars is a touch-first 2D physics game plus its level editor (the "forge"). The player flings a hero emoji from a launcher at villains, which are emoji stamped in a fragile target material. Destroy all villains to clear the level.
 
-The product is not the editor. The product is the **level schema**: a JSON format
-that a human edits visually on a phone and Claude reads and writes as text. The
-editor is the human's interface to the schema; chat is Claude's. Everything in
-this build serves the round trip: build a level by touch, copy the JSON into a
-Claude conversation, get edited or brand-new levels back, paste them in, play
-them. Notes (free text per object and per level) travel inside the schema so
-intent rides along with geometry.
+The product's real center is the **level schema**: a JSON format that a human edits visually on a phone and an AI collaborator reads and writes as text in chat. Every design decision protects that loop: human builds in the forge, copies schema JSON into a Claude conversation for feedback or co-design, pastes Claude's revisions back, and loads them. Both sides edit the same artifact.
 
-Design principles that emerged from prototyping and must be preserved:
+`reference/levelforge.html` (forge v0.11, schema v0.7) is a working single-file prototype of the whole forge plus test-play. It was iterated on-device through many rounds of phone testing and encodes hard-won interaction decisions. **Treat it as the behavioral reference: port it faithfully first, then extend.** When this document and the reference disagree on a tuning value, the reference wins.
 
-Shape and material are independent axes. Shapes are pure geometry (plank, block,
-ball, tri, emoji); materials carry all physics (wood, stone, metal, ice, rubber,
-target). New pieces stamp in the current material.
+## Target and stack
 
-Modes are explicit and mutually exclusive. Adjust (select and manipulate), view
-(pan and zoom), and stamp (armed shape places on tap) never overlap, so a touch
-always means one thing.
+- Deployment: static site, PWA (Progressive Web App: installable, offline-capable via service worker), on a subdomain of croft.ing. Own repo. No backend; levels are files in the repo.
 
-Edit mode is a frozen god view with no gravity. Physics exists only in Test.
-Precision comes from grid snap plus magnet snapping, never from simulation.
+- Stack: Vite + TypeScript. matter-js from npm, bundled (no CDN). Plain canvas rendering as in the reference; no framework needed for the forge, though a light one is acceptable for the level-select shell if it stays static-deployable.
 
-The board gets the screen. Chrome is icon-first, collapsible, and pushed to side
-rails in landscape.
+- Phone-first: all interactions must work with touch as the primary input. Mouse works as a degraded fallback.
 
-Every mutation is one undo step. Whole gestures (a full drag or pinch) are single
-steps, not micro-steps.
-
-## 2. Deployment model
-
-Own repository. Static site (no backend, all client-side), deployed to a
-subdomain of croft.ing alongside the fun.croft.ing games, via whatever static
-hosting that domain already uses (GitHub Pages or equivalent — confirm with the
-repo owner and match the existing setup). Installable PWA: web app manifest,
-service worker with offline caching of the app shell and committed levels,
-landscape orientation preferred but portrait functional.
-
-Recommended stack: Vite + TypeScript, no UI framework (the prototype proves
-vanilla DOM + canvas is sufficient and it keeps the PWA tiny). Matter.js
-(currently 0.19.x) as the physics engine, bundled rather than CDN-loaded so
-offline works. Vitest for unit tests. Prettier + ESLint.
-
-Repository layout:
+## Repo layout
 
 ```
-levelforge/
-  index.html
-  src/
-    schema.ts        # types, validation, migration — the single source of truth
-    materials.ts     # material table (section 4)
-    editor/          # canvas, gestures, tray, inspector, library
-    play/            # Matter world build, break model, melt, movers, slingshot
-    store.ts         # localStorage drafts + import/export
-  levels/
-    <scene-name>/
-      <level-name>.json
-  reference/
-    levelforge.html  # the chat prototype, kept as living documentation
-  public/
-    manifest.webmanifest, icons, service worker
-  SPEC.md            # this file
+/src
+  schema.ts        source of truth: types, defaults, migrate()
+  materials.ts     the materials table below
+  forge/           editor: canvas, gestures, tray, inspector, modals
+  play/            physics runtime: world build, break model, melt, movers
+  shell/           level select, scenes, PWA plumbing
+/levels
+  /<scene>/
+    <level>.json
+    backdrop.png       optional, referenced by meta.backgroundSrc
+    /sprites/          optional custom emoji images, referenced by object.sprite
+/reference
+  levelforge.html   the prototype; keep checked in, never load in prod
+/public              manifest, icons, service worker registration
 ```
 
-Committed levels under `levels/` are the shared library: the site loads them by
-fetch, and Claude can author them as ordinary files in the repo. A scene is a
-folder. The in-app library (section 8) reads both committed levels and local
-drafts.
+## Coordinate system and world constants
 
-## 3. Level schema v0.4
+- World: 1600 x 900 units, origin top-left, y down. Floor at y = 860. Grid snap 10. Angles in degrees in the schema (matter-js uses radians internally; convert at the boundary).
 
-The schema is versioned with a `schemaVersion` string. The app must load any
-prior version (0.2 and 0.3 exist in the wild from the prototype) by migrating
-forward; migrations live in `schema.ts` next to the types. Never mutate the
-meaning of an existing field; add fields instead.
+- Edit mode is a frozen god view: no gravity, objects sit exactly where placed. Test mode (▶) builds a fresh matter-js world from the schema; leaving Test discards it. The level data is never mutated by physics.
 
-World space is fixed at 1600 × 900 units, origin top-left, y down. All positions
-are object centers. Angles are degrees, clockwise positive. Sizes and positions
-are snapped to a 10-unit grid at rest (magnet-snapped values may be off-grid and
-that is correct — flush contact beats grid purity).
+## Schema v0.7 (current)
 
 ```jsonc
 {
-  "schemaVersion": "0.4",
+  "schemaVersion": "0.7",
   "meta": {
     "name": "untitled",
-    "scene": "",             // scene = folder = ordered set of levels
-    "gravity": 1,            // multiplier on engine default
-    "note": ""               // level-wide intent, free text
+    "scene": "",              // grouping key for the library and level select
+    "gravity": 1,             // multiplier on engine gravity.y
+    "note": "",               // level-wide intent note
+    "hero": "🙂",             // emoji flung from the launcher; level override
+    "background": "grid",     // grid|grass|cave|desert|night|sky|custom
+    "backgroundImage": null   // prototype only: dataURL. Build: replace with backgroundSrc (see below)
   },
   "world": { "w": 1600, "h": 900, "floorY": 860 },
   "slingshot": { "x": 230, "y": 770 },
-  "objects": [
-    {
-      "id": "o1",            // "o" + integer, unique within level
-      "shape": "box",        // box | circle | tri | emoji
-      "x": 1100, "y": 820,
-      "w": 30, "h": 80,      // box and tri only
-      // "r": 30,            // circle and emoji only
-      "angle": 0,
-      "material": "wood",    // key into the material table
-      "anchored": false,     // static body
-      "path": null,          // or { "x": ..., "y": ..., "speed": 90 }
-      "note": "",            // per-object intent, free text
-      // "emoji": "🎃",      // emoji shape only
-      // --- v0.4 additions, editor support per roadmap ---
-      // "weld": "groupA",   // objects sharing a weld id form one compound body
-      // "role": "destroy"   // targets only: destroy (default) | protect
-    }
-  ]
+  "objects": [ /* see object shapes */ ]
 }
 ```
 
-Field semantics that are easy to get wrong:
+Object common fields: `id` ("oN", N monotonically increasing; loader must re-seed the counter past the max), `x`, `y` (center), `angle` (degrees), `material`, `anchored` (bool, static body), `path` (null or `{x, y, speed}`: patrol endpoint plus speed in units/sec, ping-pong motion, implies static/kinematic), `note` (string, human intent that travels with the level).
 
-`anchored` and `path` both produce a static body; `path` additionally moves it
-kinematically, ping-ponging between (x, y) and (path.x, path.y) at `speed`
-world-units per second. A pathed object ignores `anchored`.
+Object shapes:
 
-`tri` is an isoceles wedge, apex up, defined by bounding w × h, with vertices
-expressed relative to the triangle's centroid so drawing and physics agree:
-(-w/2, h/3), (w/2, h/3), (0, -2h/3). Rotation covers ramps and deflectors.
+- `box`: `w`, `h`.
 
-`emoji` is physically a circle of radius r in its material; the glyph is skin.
+- `circle`: `r`.
 
-`role: "protect"` inverts the win interaction for that target: breaking it fails
-the level instead of clearing it (the "hostage" variant). Win condition overall:
-all destroy-role targets broken and no protect-role target broken.
+- `tri`: `w`, `h`. Apex-up wedge with centroid at origin; vertices `(-w/2, h/3), (w/2, h/3), (0, -2h/3)`.
 
-Validation must be strict on load (types, ranges, unique ids, known enums) with
-a human-readable error surfaced in the paste-and-load UI, because hand-written
-and Claude-written JSON is a first-class input path.
+- `emoji`: `r`, `emoji` (glyph). Round physics body, emoji glyph as skin. An emoji in `target` material is a villain.
 
-## 4. Materials
+- `blob`: `pts` (array of `[dx, dy]` relative to center, decimated to >= 0.6 x brush spacing, max 70), `brushR`. A painted freeform stroke. Physics: compound body of overlapping circles of radius `brushR` at each point. One rigid piece; melts and breaks as a unit.
 
-Materials carry all physics. Values below are the play-tested prototype numbers;
-keep them in one table in `materials.ts` and treat them as tuning knobs.
+`migrate(level)` must accept every prior schema version (0.2 onward) and fill defaults: missing `meta.hero` -> "🙂", missing `meta.background` -> "grid", `background:"custom"` without an image -> "grid", missing per-object fields -> shape defaults. Bump `schemaVersion` on any additive change and extend `migrate`; never break the paste-and-load loop.
 
-| material | density | friction | restitution | breakAt | special |
-|----------|---------|----------|-------------|---------|---------|
-| wood     | 0.0010  | 0.40     | 0.20        | 9       | grain texture |
-| stone    | 0.0025  | 0.60     | 0.10        | 20      | speckle texture |
-| metal    | 0.0040  | 0.30     | 0.05        | never   | rivet border |
-| ice      | 0.0009  | 0.05     | 0.10        | 6.5     | melts in Test (see 7) |
-| rubber   | 0.0012  | 0.90     | 0.85        | never   | highlight sheen |
-| target   | 0.0008  | 0.50     | 0.30        | 3.2     | creature face; win condition |
+### Schema v0.8 (to implement during milestones 2 to 4)
 
-Rendering is procedural-canvas per material (see the prototype's
-`drawMaterialCtx`): the texture is the label, which is why the UI can be
-icon-only. Ice renders at ~0.82 alpha.
+- `meta.backgroundSrc`: filename of a backdrop image in the level folder, replacing the prototype's inline `backgroundImage` dataURL. `migrate` converts old inline images by writing the asset out (editor-side) or, at minimum, keeps rendering them.
 
-## 5. Editor interaction model
+- `object.sprite`: filename under the level's `sprites/` for custom emoji, i.e. user images used as stamps. Physics stays a circle of `r`; the image is the skin. This is the "custom emoji" feature.
 
-Three input modes, shown as tray buttons, exactly one active:
+- `object.group`: string weld-group key. Objects sharing a group are welded into one compound body in Test.
 
-**✋ Adjust** (default). Tap a piece to select. Drag moves it; after ~10 screen
-px of touch movement the piece lifts 80/zoom world-units above the fingertip so
-the drop point is visible (mouse input does not lift). Two-finger pinch on a
-selection resizes (min 24 box side, min 14 radius); twist rotates in whole
-degrees. Tap empty space to deselect. The slingshot and each path endpoint are
-draggable handles.
+- `object.role` on target-material objects: `"destroy"` (default, villain) or `"protect"` (hostage variant: breaking it fails the level).
 
-**🔍 View.** One finger pans, two fingers pinch-zoom 1×–4× about the gesture
-midpoint, double-tap resets to fit. Pan/zoom clamps to the board. A zoom badge
-shows when zoomed. Entering Test resets the view.
+- `object.hit`: optional per-emoji hit behavior key (e.g. `"explode"` for 💣). Registry of behaviors lives in code; schema stores only the key.
 
-**Stamp** (any armed shape). Tapping the board places the shape, centered under
-the finger, in the current material, and selects it; the shape stays armed for
-repeated stamping. Tapping the armed plank flips its orientation
-(horizontal/vertical) in place, updating the tray icon. Tapping the armed emoji
-tile reopens the emoji picker. Arming exits view mode; ✋ or 🔍 disarms.
+## Materials
 
-Snapping: positions and sizes grid-snap to 10 on gesture end. During moves and on
-placement, a magnet snaps edges and centers to other pieces' edges and centers
-and bottoms to the floor, threshold 14/zoom + 4 world units, for axis-aligned
-pieces only (angle a multiple of 90°; circles and emoji always; triangles never
-— extend per roadmap). Magnet-snapped axes skip grid snap so contact stays
-flush.
+Density, friction, restitution are matter-js body properties. `breakAt` is the impact threshold in the break model below; null means unbreakable.
 
-Undo/redo: snapshot the whole level JSON at the start of every mutating action
-(place, delete, material change, toggles, note save, gesture start, clear, load,
-library load). Stack depth ≥ 80. Buttons live top-left (↶) and top-right (↷)
-and disable when empty.
+| material | color   | density | friction | restitution | breakAt | special |
+|----------|---------|---------|----------|-------------|---------|---------|
+| wood     | #b5824c | 0.0010  | 0.40     | 0.20        | 9       | grain lines |
+| stone    | #8e939c | 0.0025  | 0.60     | 0.10        | 20      | speckle |
+| metal    | #a9b6c4 | 0.0040  | 0.30     | 0.05        | null    | riveted plate look |
+| ice      | #9fd6ea | 0.0009  | 0.05     | 0.10        | 6.5     | melts in Test: Body.scale by 0.9985 per frame, removed below 30 percent |
+| rubber   | #d94f5c | 0.0012  | 0.90     | 0.85        | null    | bounce |
+| target   | #7bc86c | 0.0008  | 0.50     | 0.30        | 3.2     | the villain material; face drawn on plain circles |
 
-Selection inspector shows, always in the same order: material swatches (with
-small text labels), then behavior — ⚓ anchored, ↔ moving, ✎ note, ✕ delete —
-then a live readout `x,y · w×h (or r) · angle°`. The material row doubles as the
-stamp-material picker when nothing is selected; picking a material with a
-selection repaints it and sets the stamp.
+## Break model (Test mode)
 
-Layout: portrait stacks topbar / board / tray / inspector; landscape puts the
-tray as a left rail and the inspector as a right rail with the board maximized
-between. Rails must not need scrolling on a typical phone in landscape — if the
-current control set overflows, shrink or group controls rather than scroll (a
-known rough edge in the prototype). Test mode hides both rails.
+- Skip all break checks for the first 500 ms (settle grace). History: without this, ice pieces resting on the floor shattered at world start and looked like they "fell through the floor".
 
-## 6. Notes and dictation
+- On collisionStart, resolve each body to its compound parent if it is a part (`body.parent !== body`), then compute relative speed between the pair.
 
-The ✎ editor is a modal textarea. A 🎤 button runs the Web Speech API
-(`SpeechRecognition` / `webkitSpeechRecognition`), continuous mode, appending
-final transcripts; it must degrade gracefully (clear message, typing still
-works) where the API or mic permission is unavailable. In the installed PWA this
-is the primary path because the on-screen keyboard's dictation eats screen
-space. Notes are plain strings in the schema. Recorded audio as a level asset
-(file in the level's folder, referenced by filename) is roadmap, not v1.
+- Impact against a static body: `speed * 0.55`. Against a dynamic body: `speed * min(otherMass, 10) * 0.3`.
 
-## 7. Test mode (play)
+- If impact exceeds the material's `breakAt`, remove the body. If it was target material with role destroy, decrement the villain counter; at zero, LEVEL CLEAR.
 
-Build a Matter.js world from the schema: static floor slab below `floorY`,
-static side walls, one body per object with its material's density, friction,
-restitution. Enable sleeping. Pathed objects are static bodies moved each frame
-along their ping-pong path with both `setPosition` and matching `setVelocity`
-so they impart momentum.
+## Forge interaction model (port checklist)
 
-Breakage: on `collisionStart`, compute relative speed of the pair. For each
-breakable body in the pair, impact = speed × 0.55 if the other body is static,
-else speed × min(otherMass, 10) × 0.3. Break (remove) when impact exceeds the
-material's breakAt. Skip all breakage during the first 500 ms of Test (settle
-grace) so imperfectly placed pieces land quietly — omitting this reproduced a
-memorable bug where fresh ice "fell through the floor" (it was shattering on
-floor contact).
+Modes and arming:
 
-Ice melts: every frame, scale each ice body by 0.9985 (both physics via
-`Body.scale` and render size), removing it below 30% of original. Ice pillars
-are timed supports; this is a deliberate mechanic, keep it.
+- ✋ adjust is the default. Tray tiles arm a shape; tapping the board stamps it centered under the finger in the current material. Setting `afterPlace` (⚙): `"adjust"` (default) disarms, selects the new piece, and lets the same touch continue as a drag; `"stamp"` keeps the tool armed.
 
-Slingshot: a rubber ball (r 22, density 0.0016) loads at the launcher. Drag
-within reach pulls it back (capped at 200 units) with band rendering and a
-dotted aim preview (the preview is a visual approximation, not a physics-exact
-trajectory — replacing it with a short headless simulation is a nice
-improvement). Release launches at 0.16 × pull vector; a fresh ball loads ~3.8 s
-after launch. Win: all destroy-role targets broken (banner "LEVEL CLEAR");
-protect-role targets breaking shows a fail banner and offers reset. ■ returns to
-edit with the level exactly as authored.
+- 🖌 paint arms the blob brush: drag paints a stroke (live ghost preview), release creates the blob centered on its centroid.
 
-## 8. Library and persistence
+- 🔍 view toggles pan (one finger), pinch zoom 1x to 4x, double-tap reset. Zoom indicator shown when zoomed.
 
-In the deployed app, persistence has three layers. Local drafts: autosave the
-working level and named saves to localStorage (the artifact prototype used a
-chat-specific storage API; localStorage is correct in the PWA). Committed
-levels: everything under `levels/<scene>/` in the repo, listed via a build-time
-manifest. Exchange: the schema modal's Copy / Paste & Load round trip with
-Claude in chat, plus a Download .json button.
+Selection and manipulation:
 
-The library UI groups by scene as horizontal rows of thumbnail cards (render the
-level small onto a canvas — the prototype's `renderThumb` is the reference),
-newest first, tap to load, ✕ to delete local drafts (committed levels are
-read-only in-app; deleting those is a git operation). Saving writes name and
-scene into `meta`.
+- Tap selects (generous hit pad, 12/zoom + 4). Drag moves; on touch, after 10 px the piece lifts 80/zoom units above the fingertip so the finger never hides it.
 
-## 9. Milestones
+- Magnet: while dragging axis-aligned boxes, circles, and emoji, edges and centers snap flush to neighbors' edges/centers and to the floor, threshold 14/zoom + 4 units. Axes the magnet claimed skip grid snap on release so flush contact survives. Tris and blobs are exempt.
 
-1. **Port**: reproduce the prototype feature-for-feature in the Vite/TS
-   structure with `schema.ts` validation and migrations, unit tests on schema,
-   magnet math, and the break model. Deploy behind the subdomain.
-2. **PWA + persistence**: manifest, service worker, offline, localStorage
-   drafts, levels/ manifest loading, download/copy/paste flows.
-3. **Schema v0.4 features**: weld groups (compound bodies via Matter parts,
-   editor UX: select piece → weld chip → join to selection), protect-role
-   targets with fail state.
-4. **Polish backlog**: angled snapping (contact-point snapping for rotated
-   pieces), per-emoji hit behaviors (💣 explodes with area impulse, ⭐ score
-   pickup, etc. — a small behavior registry keyed by emoji), trajectory preview
-   via headless sim, sound, level-select page for playing a scene start to
-   finish.
-5. **Character mode** (the Red Ball direction): a controllable ball with tuned
-   platformer feel, goal zones instead of slingshot. This is a distinct game
-   mode reading the same schema; do not let rigid-body defaults stand in for
-   platforming feel — it will need its own tuning pass and likely custom
-   contact handling.
+- Pinch resizes the selection; twist during pinch rotates freely. ⟳ (topbar and behavior row) rotates 90 degrees; with a plank armed and nothing selected, topbar ⟳ flips the stamp orientation.
 
-## 10. Working agreement
+- Nudge pad: appears only when a piece is selected, positioned in the screen corner diagonally opposite the piece's quadrant so it never covers it, re-evaluated only on selection change or gesture end so it stays put during a burst of taps. Each tap moves exactly one grid square with no magnet interference, preserving any flush off-grid offset. Nudges within 1.5 s batch into one undo step.
 
-The human builds and annotates levels on a phone; Claude reads, critiques, and
-writes levels as JSON, and Claude Code implements against this spec. Keep
-`schema.ts` and this spec in sync in the same commit whenever the schema
-changes, and bump `schemaVersion` for any additive change. When behavior
-questions come up that this spec doesn't answer, check `reference/levelforge.html`
-first, then ask.
+- Behavior row (right rail in landscape): ⟳ rotate, ⚓ anchored, ↔ moving (adds a patrol path with a draggable endpoint), ✎ note, ✕ delete, plus a live readout `x,y · size · angle`.
 
----
+- Undo ↶ / redo ↷: full-level JSON snapshots taken at gesture start, stack capped (40 in the prototype because snapshots may embed the backdrop; with asset refs, 80+ is fine).
 
-## Implementation status
+Rails and layout:
 
-This section tracks what the current build implements against the milestones
-above. Update it alongside code changes.
+- Portrait: canvas, then shape tray, then inspector (materials row, backdrop row, behavior row).
 
-- **Milestone 1 (Port): complete.** The prototype is reproduced feature-for-feature
-  in the Vite/TS structure. `src/schema.ts` is the single source of truth for
-  types, strict validation, and forward migration (0.2 → 0.3 → 0.4). Unit tests
-  cover schema validation/migration, magnet math, and the break model.
-- **Milestone 2 (PWA + persistence): substantially complete.** Web app manifest,
-  service worker with app-shell + committed-level offline caching, localStorage
-  drafts + working-level autosave, build-time `levels/` manifest loading, and the
-  Copy / Paste & Load / Download `.json` exchange flows are all implemented.
-- **Milestone 3 (Schema v0.4): partial.** The schema types, validation, and
-  migration are v0.4. Play-side `protect`-role targets (fail state) and `weld`
-  compound bodies are implemented. Editor UX for authoring weld groups and the
-  protect role is minimal (roles/welds round-trip through JSON and are honored in
-  Test; a richer editor affordance is future work).
-- **Milestones 4–5:** not started (polish backlog and Character mode).
+- Landscape: left rail = ✋ plus shapes (select and place side), right rail = materials, backdrop, behavior (modify side). Known rough edge in the prototype: rails can overflow and scroll on some phones; the port must fit both rails without scrolling at common phone sizes.
+
+Notes and dictation:
+
+- ✎ opens a note editor per object; meta.note for the level. 🎤 uses the Web Speech API when the platform provides it, with graceful fallback messaging. Notes are the designer's intent in words and must round-trip through the schema untouched.
+
+Emoji picker:
+
+- 10 recents, a curated quick palette, and a free text input whose job is to open the OS emoji keyboard, which is the full-universe fallback.
+
+- Milestone 4 replaces this with a searchable Slack-style picker: bundle an emoji name database (emojibase data or the emoji-picker-element web component) so search works offline, keeping recents on top and the OS keyboard input as a final fallback.
+
+Backdrops:
+
+- Six procedural styles drawn in canvas: grid, grass, cave, desert, night, sky. Selected in a swatch row; stored in `meta.background`; rendered in edit, Test, and library thumbnails. In edit mode a faint alignment grid overlays any non-grid backdrop.
+
+- Custom: 🖼 upload. Prototype embeds a dataURL in `meta.backgroundImage`; the build stores a file and `meta.backgroundSrc`. Render cover-fit to 1600 x 900 and always draw a translucent floor strip plus line so the physics ground stays legible over any art.
+
+- 📋 agent brief: a copyable prompt for image-generation agents that fixes form and function (exact 1600 x 900, ground reads at 96 percent height, low-contrast central band, detail toward top and edges, no text/logos/vignette, avoid hues near #7bc86c and #ff8a3d) and leaves a marked slot for the user's style notes. Copy the text verbatim from the `AGENT_BRIEF` constant in the reference.
+
+Library and schema modals:
+
+- 💾 library: named saves grouped by scene with canvas thumbnails, load and delete. Prototype uses window.storage or session memory; the build uses IndexedDB or localStorage, plus export/import of level JSON as files (this is how levels graduate into `/levels` in the repo).
+
+- { } schema modal: pretty-printed JSON, Copy, Paste and Load (through `migrate`), Demo level, Clear. This is the collaboration surface; it must never lag behind the schema.
+
+Test mode (▶):
+
+- Fresh engine per entry, gravity from meta, floor plus side walls, bodies from objects (anchored or pathed implies static), movers ping-pong along their paths at `speed` via setPosition plus matching setVelocity per frame, ice melts, break model as above.
+
+- The hero: a circular body skinned with `meta.hero`, loaded at the launcher; drag back to set the shot (capped at 200 units), dotted trajectory preview while aiming, auto-reload a few seconds after firing. Villain counter on screen; LEVEL CLEAR banner at zero. ■ returns to edit with the level untouched.
+
+## Game shell (new in the build)
+
+- Level select page: read `/levels/<scene>/*.json` at build time (Vite glob import), group by scene, thumbnail cards, play-only route that loads straight into Test mode with edit hidden.
+
+- Hero progression: the player picks a hero once and it persists (their default across levels); `meta.hero` acts as a per-level override when a level demands a specific hero.
+
+- Win/lose flow: clear banner, retry, next level in scene.
+
+## Milestones
+
+1. **Faithful port.** TypeScript modules, bundled matter-js, feature parity with reference v0.11 per the checklist above, including the settle grace, magnet rules, lift offset, nudge pad placement, and afterPlace behavior. Fix the landscape rail overflow. Acceptance: a level built in the reference pastes into the port and behaves identically in Test.
+
+2. **PWA and persistence.** Manifest, service worker, offline load. Library on IndexedDB. Export/import level JSON files. Backdrop becomes an asset file with `meta.backgroundSrc` (schema 0.8 partial, migrate handles inline images). Deploy docs for the croft.ing subdomain.
+
+3. **Game shell.** Level select, scenes, play-only route, hero progression, win/lose flow.
+
+4. **Collab depth.** Searchable emoji picker with bundled name data. Custom emoji sprites (`object.sprite`, files under `sprites/`). Weld groups (`object.group`). Protect-role targets. Blob fracture (split a compound at the impact point instead of vanishing). Per-emoji hit behaviors registry (💣 explode first). Trajectory preview via a short headless engine rollout. Audio notes as asset files if cheap.
+
+5. **Character mode exploration.** Red Ball style: the hero as a drivable body (tilt or button input), same schema, `meta.mode: "drive"`. Prototype-quality is fine; this validates that the schema generalizes beyond slingshot.
+
+## Working agreements
+
+- The schema is the contract. Any change bumps `schemaVersion`, extends `migrate`, and keeps Copy / Paste and Load working in the same release.
+
+- Every milestone gates on phone testing, not desktop.
+
+- Prefer honest physics over faked effects; where a simplification is chosen (e.g. blobs as circle compounds), document the seam in code comments.

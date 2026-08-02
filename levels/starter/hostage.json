@@ -1,17 +1,21 @@
 {
-  "schemaVersion": "0.4",
+  "schemaVersion": "0.7",
   "meta": {
     "name": "hostage",
     "scene": "starter",
     "gravity": 1,
-    "note": "v0.4 showcase. Break the green target but spare the blue protect target below it. The two stone planks are welded into one rigid shelf."
+    "note": "v0.8 showcase. Destroy the 😈 villain but spare the 😇 hostage below it. The two stone planks are welded into one rigid shelf; a painted ice pillar props it up and melts during Test.",
+    "hero": "⚽",
+    "background": "cave",
+    "backgroundImage": null
   },
   "world": { "w": 1600, "h": 900, "floorY": 860 },
   "slingshot": { "x": 230, "y": 770 },
   "objects": [
-    { "id": "o1", "shape": "box", "x": 980, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (left half)", "weld": "shelf" },
-    { "id": "o2", "shape": "box", "x": 1180, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (right half)", "weld": "shelf" },
-    { "id": "o3", "shape": "circle", "x": 1080, "y": 660, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "destroy this", "role": "destroy" },
-    { "id": "o4", "shape": "circle", "x": 1080, "y": 800, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "PROTECT this — breaking it fails the level", "role": "protect" }
+    { "id": "o1", "shape": "box", "x": 980, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (left half)", "group": "shelf" },
+    { "id": "o2", "shape": "box", "x": 1180, "y": 700, "w": 200, "h": 24, "angle": 0, "material": "stone", "anchored": true, "path": null, "note": "welded shelf (right half)", "group": "shelf" },
+    { "id": "o3", "shape": "blob", "x": 1080, "y": 790, "angle": 0, "material": "ice", "anchored": false, "path": null, "brushR": 20, "pts": [[0, 60], [0, 20], [0, -20], [0, -60]], "note": "painted ice pillar — a timed support" },
+    { "id": "o4", "shape": "emoji", "x": 1080, "y": 660, "r": 26, "angle": 0, "material": "target", "emoji": "😈", "anchored": false, "path": null, "role": "destroy", "note": "destroy this villain" },
+    { "id": "o5", "shape": "emoji", "x": 820, "y": 822, "r": 26, "angle": 0, "material": "target", "emoji": "😇", "anchored": false, "path": null, "role": "protect", "note": "PROTECT this hostage — breaking it fails the level" }
   ]
 }

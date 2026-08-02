@@ -1,28 +1,38 @@
 /* =====================================================================
-   schema.ts — the LevelForge level format: the single source of truth.
+   schema.ts — the Emoji Wars level format: the single source of truth.
 
    The product is the schema, not the editor. A human edits it by touch;
-   Claude reads and writes it as JSON. Everything here serves that round
-   trip, so validation is STRICT (types, ranges, unique ids, known enums)
-   with human-readable errors, and migration is FORWARD-ONLY and additive:
-   never change the meaning of an existing field — add fields instead, and
-   bump the version.
+   Claude reads and writes it as JSON. Validation is STRICT (types, ranges,
+   unique ids, known enums) with human-readable errors. Migration is
+   FORWARD-ONLY and forgiving: it accepts every prior version (0.2 onward)
+   and fills defaults; never break the paste-and-load loop.
 
-   World space is fixed at 1600 x 900, origin top-left, y down. Positions
-   are object centres. Angles are degrees, clockwise positive.
+   Current schema: v0.7 (matches reference/levelforge.html forge v0.11).
+   The optional group/role/sprite/hit/backgroundSrc fields are v0.8-forward:
+   accepted and preserved so levels authored against v0.8 round-trip, and so
+   the already-shipped weld/protect behavior keeps working.
+
+   World is fixed at 1600 x 900, origin top-left, y down. Positions are
+   object centres. Angles are degrees, clockwise positive.
    ===================================================================== */
 
 import { MaterialKey, isMaterialKey } from './materials';
 
-export const CURRENT_SCHEMA_VERSION = '0.4';
+export const CURRENT_SCHEMA_VERSION = '0.7';
 
-/** Fixed world size. Levels carry their own copy but authoring assumes this. */
 export const WORLD = { w: 1600, h: 900 } as const;
 export const DEFAULT_FLOOR_Y = 860;
+export const DEFAULT_HERO = '🙂';
+/** Default blob brush radius, matching the reference BRUSH constant. */
+export const BRUSH_DEFAULT = 26;
 
-export type ShapeKind = 'box' | 'circle' | 'tri' | 'emoji';
-/** Target-only. destroy (default) must be broken to win; protect must survive. */
+export type ShapeKind = 'box' | 'circle' | 'tri' | 'emoji' | 'blob';
 export type Role = 'destroy' | 'protect';
+export type BackgroundKind = 'grid' | 'grass' | 'cave' | 'desert' | 'night' | 'sky' | 'custom';
+
+export const BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky', 'custom'];
+/** Procedural (non-custom) backgrounds — those that need no image. */
+export const PROCEDURAL_BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky'];
 
 export interface PathDef {
   x: number;
@@ -31,43 +41,51 @@ export interface PathDef {
   speed: number;
 }
 
+export type BlobPoint = [number, number];
+
 export interface LevelObject {
   /** "o" + integer, unique within the level. */
   id: string;
   shape: ShapeKind;
-  /** Centre position. */
   x: number;
   y: number;
-  /** Bounding size for box and tri. */
+  /** box & tri. */
   w?: number;
   h?: number;
-  /** Radius for circle and emoji. */
+  /** circle & emoji. */
   r?: number;
   /** Degrees, clockwise positive. */
   angle: number;
   material: MaterialKey;
-  /** Static body when true (also true implicitly when path is set). */
   anchored: boolean;
-  /** Kinematic ping-pong between (x,y) and (path.x,path.y), or null. */
   path: PathDef | null;
-  /** Per-object intent, free text. Rides inside the schema. */
   note: string;
-  /** Glyph for emoji shape. */
+  /** emoji shape glyph. */
   emoji?: string;
-  /** v0.4: objects sharing a weld id fuse into one compound body in Test. */
-  weld?: string;
-  /** v0.4: target role. Omitted means "destroy". */
+  /** blob: points relative to centre, and brush radius. */
+  pts?: BlobPoint[];
+  brushR?: number;
+  /** v0.8-forward: weld-group key (objects sharing it fuse in Test). */
+  group?: string;
+  /** v0.8-forward: target role. Omitted means "destroy". */
   role?: Role;
+  /** v0.8-forward: custom emoji sprite filename. */
+  sprite?: string;
+  /** v0.8-forward: per-emoji hit behavior key. */
+  hit?: string;
 }
 
 export interface LevelMeta {
   name: string;
-  /** scene = folder = ordered set of levels. */
   scene: string;
-  /** Multiplier on the engine's default gravity. */
   gravity: number;
-  /** Level-wide intent, free text. */
   note: string;
+  hero: string;
+  background: BackgroundKind;
+  /** Prototype inline dataURL for a custom backdrop, or null. */
+  backgroundImage: string | null;
+  /** v0.8-forward: backdrop image filename in the level folder. */
+  backgroundSrc?: string | null;
 }
 
 export interface WorldDef {
@@ -89,7 +107,6 @@ export interface Level {
   objects: LevelObject[];
 }
 
-/** Thrown by validateLevel with a human-readable, surfaceable message. */
 export class SchemaError extends Error {
   constructor(message: string) {
     super(message);
@@ -104,14 +121,21 @@ export class SchemaError extends Error {
 export function emptyLevel(): Level {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    meta: { name: 'untitled', scene: '', gravity: 1, note: '' },
+    meta: {
+      name: 'untitled',
+      scene: '',
+      gravity: 1,
+      note: '',
+      hero: DEFAULT_HERO,
+      background: 'grid',
+      backgroundImage: null,
+    },
     world: { w: WORLD.w, h: WORLD.h, floorY: DEFAULT_FLOOR_Y },
     slingshot: { x: 230, y: DEFAULT_FLOOR_Y - 90 },
     objects: [],
   };
 }
 
-/** Highest numeric id suffix in the level, for seeding the id counter. */
 export function maxIdNum(level: Level): number {
   let mx = 0;
   for (const o of level.objects) {
@@ -122,18 +146,17 @@ export function maxIdNum(level: Level): number {
 }
 
 /* --------------------------------------------------------------------- */
-/* Migration — forward only, additive, defensive.                         */
+/* Migration — forward only, forgiving.                                    */
 /*                                                                         */
-/* 0.2 and 0.3 exist in the wild from the prototype. We do not know the    */
-/* exact historic 0.2 shape, so each step fills missing fields with        */
-/* defaults rather than assuming presence; nothing is ever removed.        */
+/* Structural steps we know (0.2->0.3->0.4) run first; then a final        */
+/* normalize pass fills every current-version default and renames the      */
+/* legacy `weld` key to `group`. Any unknown/newer version falls through   */
+/* to normalize, so the paste-and-load loop never breaks.                  */
 /* --------------------------------------------------------------------- */
 
 type Loose = Record<string, any>;
 
 function migrate_0_2_to_0_3(l: Loose): Loose {
-  // 0.3 introduced tri/emoji shapes and per-object + level notes. Fill the
-  // additive fields defensively; leave geometry untouched.
   l.meta = l.meta ?? {};
   if (typeof l.meta.note !== 'string') l.meta.note = '';
   if (Array.isArray(l.objects)) {
@@ -148,11 +171,7 @@ function migrate_0_2_to_0_3(l: Loose): Loose {
   l.schemaVersion = '0.3';
   return l;
 }
-
 function migrate_0_3_to_0_4(l: Loose): Loose {
-  // 0.4 added optional weld groups and target role. Both are optional and
-  // absence is meaningful ("no weld" / "destroy"), so there is nothing to
-  // backfill — only the version bumps.
   l.schemaVersion = '0.4';
   return l;
 }
@@ -162,37 +181,50 @@ const MIGRATIONS: Record<string, (l: Loose) => Loose> = {
   '0.3': migrate_0_3_to_0_4,
 };
 
-/**
- * Bring a loosely-typed, parsed level object up to the current schema
- * version by applying successive migrations. Does not validate — call
- * validateLevel afterwards. Returns a shallow-mutated copy of the input.
- */
+/** Fill all current-version defaults and normalize legacy shapes. */
+function normalizeToCurrent(l: Loose): Loose {
+  l.meta = l.meta ?? {};
+  if (typeof l.meta.hero !== 'string' || !l.meta.hero) l.meta.hero = DEFAULT_HERO;
+  if (typeof l.meta.background !== 'string') l.meta.background = 'grid';
+  if (l.meta.backgroundImage === undefined) l.meta.backgroundImage = null;
+  // custom background without an image is meaningless — fall back to grid
+  if (l.meta.background === 'custom' && !l.meta.backgroundImage && !l.meta.backgroundSrc) {
+    l.meta.background = 'grid';
+  }
+  if (Array.isArray(l.objects)) {
+    for (const o of l.objects) {
+      if (!o || typeof o !== 'object') continue;
+      if (typeof o.note !== 'string') o.note = '';
+      if (!('path' in o)) o.path = null;
+      if (!('anchored' in o)) o.anchored = false;
+      if (!('angle' in o)) o.angle = 0;
+      // legacy weld -> group (v0.4 -> v0.8 naming)
+      if (o.weld != null && o.group == null) o.group = o.weld;
+      delete o.weld;
+      if (o.shape === 'blob' && o.brushR == null) o.brushR = BRUSH_DEFAULT;
+    }
+  }
+  l.schemaVersion = CURRENT_SCHEMA_VERSION;
+  return l;
+}
+
 export function migrateToCurrent(input: unknown): Loose {
   if (input == null || typeof input !== 'object') {
     throw new SchemaError('Level must be a JSON object.');
   }
   let l: Loose = structuredCloneSafe(input as Loose);
-  const start = l.schemaVersion;
-  if (typeof start !== 'string') {
-    throw new SchemaError('Missing "schemaVersion" — is this a LevelForge level?');
+  if (typeof l.schemaVersion !== 'string') {
+    throw new SchemaError('Missing "schemaVersion" — is this an Emoji Wars level?');
   }
   let guard = 0;
-  while (l.schemaVersion !== CURRENT_SCHEMA_VERSION) {
-    const step = MIGRATIONS[l.schemaVersion];
-    if (!step) {
-      // Unknown or newer-than-current version: stop migrating and let
-      // validation decide whether the shape is loadable as-is.
-      break;
-    }
-    l = step(l);
+  while (l.schemaVersion !== CURRENT_SCHEMA_VERSION && MIGRATIONS[l.schemaVersion]) {
+    l = MIGRATIONS[l.schemaVersion](l);
     if (++guard > 16) throw new SchemaError('Migration did not converge.');
   }
-  return l;
+  return normalizeToCurrent(l);
 }
 
 function structuredCloneSafe<T>(v: T): T {
-  // structuredClone exists in modern browsers and Node 17+, but fall back to
-  // JSON so tests and older runtimes behave identically.
   try {
     return structuredClone(v);
   } catch {
@@ -207,13 +239,22 @@ function structuredCloneSafe<T>(v: T): T {
 function isFiniteNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
-
 function req(cond: boolean, msg: string): asserts cond {
   if (!cond) throw new SchemaError(msg);
 }
 
 const ID_RE = /^o\d+$/;
-const SHAPES: ShapeKind[] = ['box', 'circle', 'tri', 'emoji'];
+const SHAPES: ShapeKind[] = ['box', 'circle', 'tri', 'emoji', 'blob'];
+const MAX_BLOB_PTS = 70;
+
+function validateBlobPts(v: unknown, where: string): BlobPoint[] {
+  req(Array.isArray(v) && v.length >= 1, `${where} (blob) needs a non-empty "pts" array.`);
+  req(v.length <= MAX_BLOB_PTS, `${where} (blob) has too many points (max ${MAX_BLOB_PTS}).`);
+  return (v as unknown[]).map((p, i) => {
+    req(Array.isArray(p) && p.length === 2 && isFiniteNum(p[0]) && isFiniteNum(p[1]), `${where}.pts[${i}] must be [number, number].`);
+    return [p[0] as number, p[1] as number];
+  });
+}
 
 function validateObject(o: unknown, index: number, seen: Set<string>): LevelObject {
   const where = `objects[${index}]`;
@@ -232,36 +273,6 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
   req(typeof obj.note === 'string', `${where}.note must be a string.`);
 
   const shape = obj.shape as ShapeKind;
-  if (shape === 'box' || shape === 'tri') {
-    req(isFiniteNum(obj.w) && obj.w > 0, `${where} (${shape}) needs positive w.`);
-    req(isFiniteNum(obj.h) && obj.h > 0, `${where} (${shape}) needs positive h.`);
-  } else {
-    req(isFiniteNum(obj.r) && obj.r > 0, `${where} (${shape}) needs positive r.`);
-  }
-  if (shape === 'emoji') {
-    req(typeof obj.emoji === 'string' && [...obj.emoji].length >= 1, `${where} (emoji) needs a non-empty "emoji" glyph.`);
-  }
-
-  // path: null or {x,y,speed>0}
-  if (obj.path != null) {
-    req(typeof obj.path === 'object', `${where}.path must be null or an object.`);
-    req(isFiniteNum(obj.path.x) && isFiniteNum(obj.path.y), `${where}.path needs finite x and y.`);
-    req(isFiniteNum(obj.path.speed) && obj.path.speed > 0, `${where}.path.speed must be a positive number.`);
-  } else {
-    obj.path = null;
-  }
-
-  // v0.4: weld
-  if (obj.weld != null) {
-    req(typeof obj.weld === 'string' && obj.weld.length > 0, `${where}.weld must be a non-empty string.`);
-  }
-  // v0.4: role (targets only)
-  if (obj.role != null) {
-    req(obj.role === 'destroy' || obj.role === 'protect', `${where}.role must be "destroy" or "protect".`);
-    req(obj.material === 'target', `${where}.role is only valid on target material.`);
-  }
-
-  // Reconstruct a clean, typed object (drops unknown keys quietly, keeps schema tidy).
   const out: LevelObject = {
     id: obj.id,
     shape,
@@ -270,36 +281,75 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
     angle: obj.angle,
     material: obj.material as MaterialKey,
     anchored: obj.anchored,
-    path: obj.path,
+    path: null,
     note: obj.note,
   };
+
   if (shape === 'box' || shape === 'tri') {
+    req(isFiniteNum(obj.w) && obj.w > 0, `${where} (${shape}) needs positive w.`);
+    req(isFiniteNum(obj.h) && obj.h > 0, `${where} (${shape}) needs positive h.`);
     out.w = obj.w;
     out.h = obj.h;
+  } else if (shape === 'blob') {
+    out.pts = validateBlobPts(obj.pts, where);
+    const br = obj.brushR ?? BRUSH_DEFAULT;
+    req(isFiniteNum(br) && br > 0, `${where} (blob) brushR must be positive.`);
+    out.brushR = br;
   } else {
+    req(isFiniteNum(obj.r) && obj.r > 0, `${where} (${shape}) needs positive r.`);
     out.r = obj.r;
   }
-  if (shape === 'emoji') out.emoji = obj.emoji;
-  if (obj.weld != null) out.weld = obj.weld;
-  if (obj.role != null) out.role = obj.role;
+  if (shape === 'emoji') {
+    req(typeof obj.emoji === 'string' && [...obj.emoji].length >= 1, `${where} (emoji) needs a non-empty "emoji" glyph.`);
+    out.emoji = obj.emoji;
+  }
+
+  if (obj.path != null) {
+    req(typeof obj.path === 'object', `${where}.path must be null or an object.`);
+    req(isFiniteNum(obj.path.x) && isFiniteNum(obj.path.y), `${where}.path needs finite x and y.`);
+    req(isFiniteNum(obj.path.speed) && obj.path.speed > 0, `${where}.path.speed must be a positive number.`);
+    out.path = { x: obj.path.x, y: obj.path.y, speed: obj.path.speed };
+  }
+
+  // v0.8-forward optional fields
+  if (obj.group != null) {
+    req(typeof obj.group === 'string' && obj.group.length > 0, `${where}.group must be a non-empty string.`);
+    out.group = obj.group;
+  }
+  if (obj.role != null) {
+    req(obj.role === 'destroy' || obj.role === 'protect', `${where}.role must be "destroy" or "protect".`);
+    req(obj.material === 'target', `${where}.role is only valid on target material.`);
+    out.role = obj.role;
+  }
+  if (obj.sprite != null) {
+    req(typeof obj.sprite === 'string' && obj.sprite.length > 0, `${where}.sprite must be a non-empty string.`);
+    out.sprite = obj.sprite;
+  }
+  if (obj.hit != null) {
+    req(typeof obj.hit === 'string' && obj.hit.length > 0, `${where}.hit must be a non-empty string.`);
+    out.hit = obj.hit;
+  }
   return out;
 }
 
-/** Strictly validate a (already migrated) level, returning a clean typed copy. */
 export function validateLevel(input: unknown): Level {
   req(input != null && typeof input === 'object', 'Level must be a JSON object.');
   const l = input as Loose;
-
   req(typeof l.schemaVersion === 'string', 'Missing "schemaVersion".');
 
   const meta = l.meta ?? {};
   req(typeof meta === 'object', 'meta must be an object.');
+  const background = BACKGROUNDS.includes(meta.background) ? (meta.background as BackgroundKind) : 'grid';
   const cleanMeta: LevelMeta = {
     name: typeof meta.name === 'string' ? meta.name : 'untitled',
     scene: typeof meta.scene === 'string' ? meta.scene : '',
     gravity: isFiniteNum(meta.gravity) ? meta.gravity : 1,
     note: typeof meta.note === 'string' ? meta.note : '',
+    hero: typeof meta.hero === 'string' && meta.hero ? meta.hero : DEFAULT_HERO,
+    background,
+    backgroundImage: typeof meta.backgroundImage === 'string' ? meta.backgroundImage : null,
   };
+  if (typeof meta.backgroundSrc === 'string' && meta.backgroundSrc) cleanMeta.backgroundSrc = meta.backgroundSrc;
 
   const world = l.world ?? {};
   req(typeof world === 'object', 'world must be an object.');
@@ -326,16 +376,11 @@ export function validateLevel(input: unknown): Level {
   };
 }
 
-/**
- * The main entry point for untrusted input (paste-and-load, committed level
- * files, drafts). Migrates then strictly validates. Throws SchemaError with a
- * human-readable message on any problem.
- */
+/** Main entry for untrusted input: migrate then strictly validate. */
 export function loadLevel(input: unknown): Level {
   return validateLevel(migrateToCurrent(input));
 }
 
-/** Parse a JSON string and load it. Distinguishes JSON errors from schema errors. */
 export function parseLevel(text: string): Level {
   let parsed: unknown;
   try {
@@ -346,7 +391,6 @@ export function parseLevel(text: string): Level {
   return loadLevel(parsed);
 }
 
-/** Pretty-printed JSON, the canonical export form for the schema modal. */
 export function serializeLevel(level: Level): string {
   return JSON.stringify(level, null, 2);
 }

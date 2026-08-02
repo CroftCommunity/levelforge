@@ -98,6 +98,14 @@ describe('magnetSnap', () => {
     expect(res.snappedX).toBe(false);
     expect(res.x).toBe(103);
   });
+
+  it('leaves blobs unsnapped and ignores them as targets', () => {
+    const blob: GeomObject = { id: 'o2', shape: 'blob', x: 100, y: 200 };
+    expect(extents(blob)).toBeNull();
+    const sel = box({ id: 'o1', x: 103, y: 200 });
+    const res = magnetSnap(sel, [sel, blob], { zoom: 1, floorY: 860 });
+    expect(res.snappedX).toBe(false);
+  });
 });
 
 describe('triVerts + pointInTri', () => {

@@ -1,7 +1,7 @@
 {
-  "name": "LevelForge",
-  "short_name": "LevelForge",
-  "description": "Touch-first 2D physics level editor and test bed for human-and-Claude collaboration.",
+  "name": "Emoji Wars",
+  "short_name": "Emoji Wars",
+  "description": "Touch-first 2D physics game and level forge for human-and-Claude collaboration.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

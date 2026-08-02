@@ -1,10 +1,13 @@
 {
-  "schemaVersion": "0.4",
+  "schemaVersion": "0.7",
   "meta": {
     "name": "tower",
     "scene": "starter",
     "gravity": 1,
-    "note": "A gentle first level. Knock the tower and pop the target. Aim over the stone ramp."
+    "note": "A gentle first level. Fling your hero over the stone ramp, knock the tower, pop the villains.",
+    "hero": "🙂",
+    "background": "grass",
+    "backgroundImage": null
   },
   "world": { "w": 1600, "h": 900, "floorY": 860 },
   "slingshot": { "x": 230, "y": 770 },
@@ -13,7 +16,7 @@
     { "id": "o2", "shape": "box", "x": 1100, "y": 820, "w": 30, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
     { "id": "o3", "shape": "box", "x": 1240, "y": 820, "w": 30, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
     { "id": "o4", "shape": "box", "x": 1170, "y": 765, "w": 220, "h": 26, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "the lintel — topple this" },
-    { "id": "o5", "shape": "circle", "x": 1170, "y": 730, "r": 26, "angle": 0, "material": "target", "anchored": false, "path": null, "note": "pop me to clear the level" },
-    { "id": "o6", "shape": "emoji", "x": 1170, "y": 620, "r": 28, "angle": 0, "material": "wood", "emoji": "🎃", "anchored": false, "path": null, "note": "" }
+    { "id": "o5", "shape": "emoji", "x": 1170, "y": 730, "r": 26, "angle": 0, "material": "target", "emoji": "🎃", "anchored": false, "path": null, "note": "villain on the roof" },
+    { "id": "o6", "shape": "emoji", "x": 1170, "y": 822, "r": 24, "angle": 0, "material": "target", "emoji": "👿", "anchored": false, "path": null, "note": "villain in the house" }
   ]
 }

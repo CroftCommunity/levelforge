@@ -6,8 +6,8 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>LEVELFORGE · schema v0.4</title>
-    <meta name="description" content="Touch-first 2D physics level editor and test bed." />
+    <title>Emoji Wars · forge · schema v0.7</title>
+    <meta name="description" content="Touch-first 2D physics game and level forge for human-and-Claude collaboration." />
     <meta name="theme-color" content="#0f1722" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -61,7 +61,7 @@
         background: #1d2c40;
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 9px 11px;
+        padding: 8px 9px;
         cursor: pointer;
         user-select: none;
         -webkit-user-select: none;
@@ -74,6 +74,11 @@
         border-color: var(--accent-dn);
         color: #1a1005;
         font-weight: 700;
+      }
+      button.viewon {
+        background: #16283c;
+        border-color: var(--viewblue);
+        color: #cfe4ff;
       }
       button:active:not(:disabled) {
         transform: translateY(1px);
@@ -90,28 +95,28 @@
       #topbar {
         display: flex;
         align-items: center;
-        gap: 5px;
-        padding: 6px 8px;
+        gap: 4px;
+        padding: 6px 6px;
         background: var(--panel);
         border-bottom: 1px solid var(--line);
         flex: none;
       }
       #topbar .brand {
         font-size: 9px;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         color: var(--dim);
-        line-height: 1.25;
-        margin-right: auto;
+        line-height: 1.2;
+        margin: 0 auto 0 2px;
       }
       #topbar .brand b {
         color: var(--ink);
         font-weight: 600;
-        font-size: 10.5px;
+        font-size: 10px;
       }
-      #undo,
-      #redo {
-        font-size: 16px;
-        padding: 7px 10px;
+      @media (max-width: 460px) {
+        #topbar .brand span {
+          display: none;
+        }
       }
       #main {
         flex: 1;
@@ -175,11 +180,30 @@
       }
       #resetbtn {
         position: absolute;
-        bottom: 44px;
+        top: 52px;
         left: 50%;
         transform: translateX(-50%);
         display: none;
+        z-index: 6;
+      }
+      #nudge {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        display: none;
+        grid-template-columns: repeat(3, 44px);
+        grid-template-rows: repeat(3, 44px);
+        gap: 4px;
         z-index: 5;
+      }
+      #nudge button {
+        font-size: 17px;
+        padding: 0;
+        opacity: 0.82;
+        background: rgba(29, 44, 64, 0.9);
+      }
+      #nudge .blank {
+        visibility: hidden;
       }
       #tray {
         display: flex;
@@ -219,11 +243,6 @@
         background: #33261a;
         color: var(--ink);
       }
-      .preset.viewon {
-        border-color: var(--viewblue);
-        background: #16283c;
-        color: #cfe4ff;
-      }
       .preset:active {
         transform: translateY(1px);
       }
@@ -237,22 +256,6 @@
       .preset .shp {
         border: 1px solid rgba(0, 0, 0, 0.4);
       }
-      #handrow {
-        display: flex;
-        gap: 5px;
-        flex: none;
-      }
-      #handrow .preset {
-        min-width: 44px;
-        padding: 6px 6px;
-      }
-      body.land #handrow {
-        flex-direction: row;
-        width: 100%;
-      }
-      body.land #handrow .preset {
-        flex: 1;
-      }
       #inspector {
         background: var(--panel);
         border-top: 1px solid var(--line);
@@ -261,12 +264,6 @@
         flex-direction: column;
         gap: 6px;
         flex: none;
-      }
-      #hint {
-        color: var(--dim);
-        font-size: 11px;
-        line-height: 1.45;
-        text-align: center;
       }
       .row {
         display: flex;
@@ -301,6 +298,25 @@
       .swwrap.on span {
         color: var(--ink);
       }
+      .bgw {
+        width: 30px;
+        height: 22px;
+        border-radius: 6px;
+        flex: none;
+        border: 2px solid rgba(0, 0, 0, 0.45);
+        cursor: pointer;
+        background-size: cover;
+        background-position: center;
+      }
+      .bgw.on {
+        border-color: var(--viewblue);
+        box-shadow: 0 0 0 2px rgba(90, 162, 230, 0.35);
+      }
+      #bg-upload,
+      #bg-brief {
+        padding: 3px 8px;
+        font-size: 13px;
+      }
       .chip {
         display: flex;
         align-items: center;
@@ -329,6 +345,11 @@
         font-size: 10.5px;
         color: var(--dim);
       }
+      .lbl2 {
+        font-size: 8.5px;
+        letter-spacing: 0.13em;
+        color: var(--dim);
+      }
       body.land #main {
         flex-direction: row;
       }
@@ -348,7 +369,7 @@
       }
       body.land #inspector {
         order: 2;
-        width: 132px;
+        width: 140px;
         border-top: none;
         border-left: 1px solid var(--line);
         overflow-y: auto;
@@ -365,9 +386,6 @@
       body.land #readout {
         width: 100%;
         text-align: center;
-      }
-      body.land #hint {
-        font-size: 10.5px;
       }
       .modal {
         position: fixed;
@@ -410,11 +428,11 @@
         min-height: 14px;
         flex: none;
       }
-      #notetext {
+      #notetext,
+      #brieftext {
         white-space: pre-wrap;
         color: var(--ink);
-        font-size: 14px;
-        max-height: 38vh;
+        font-size: 13px;
       }
       .modal .row {
         justify-content: flex-end;
@@ -424,6 +442,78 @@
         background: #5a1f28;
         border-color: #a33;
         color: #ffb0b0;
+      }
+      #helpbody {
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.7;
+        flex: 1;
+        overflow-y: auto;
+      }
+      #helpbody b {
+        color: var(--accent);
+      }
+      #helpbody .sect {
+        margin-bottom: 12px;
+      }
+      .setrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .setrow .setlbl {
+        font-size: 12px;
+        color: var(--ink);
+        flex: 1;
+        min-width: 140px;
+        line-height: 1.5;
+      }
+      .setrow .setlbl small {
+        display: block;
+        color: var(--dim);
+        font-size: 10.5px;
+      }
+      #herobtn {
+        font-size: 22px;
+        padding: 6px 12px;
+      }
+      #erecents,
+      #epicks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: center;
+        flex: none;
+      }
+      #epicks {
+        overflow-y: auto;
+        max-height: 36vh;
+        flex: 1;
+      }
+      #erecents button,
+      #epicks button {
+        font-size: 21px;
+        padding: 7px 9px;
+      }
+      #erow {
+        justify-content: center;
+        align-items: center;
+      }
+      #einput {
+        font-size: 22px;
+        width: 110px;
+        text-align: center;
+      }
+      .elbl {
+        font-size: 10px;
+        letter-spacing: 0.13em;
+        color: var(--dim);
+        width: 100%;
+        text-align: center;
+        flex: none;
       }
       #lib-save {
         justify-content: flex-start;
@@ -498,25 +588,6 @@
         font-size: 11px;
         padding: 2px 7px;
       }
-      #epicks {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        justify-content: center;
-        flex: none;
-      }
-      #epicks button {
-        font-size: 22px;
-        padding: 8px 10px;
-      }
-      #erow {
-        justify-content: center;
-      }
-      #einput {
-        font-size: 22px;
-        width: 90px;
-        text-align: center;
-      }
       #toast {
         position: fixed;
         bottom: 90px;
@@ -537,8 +608,12 @@
   <body>
     <div id="topbar">
       <button id="undo" title="undo">↶</button>
-      <div class="brand"><b>LEVELFORGE</b><br />schema v0.4</div>
-      <button id="b-schema" title="schema JSON">{ }</button>
+      <div class="brand"><b>EMOJI WARS</b><span><br />forge · schema v0.7</span></div>
+      <button id="b-rot" title="rotate selection / flip stamp">⟳</button>
+      <button id="b-view" title="pan &amp; zoom">🔍</button>
+      <button id="b-help" title="how it works">💡</button>
+      <button id="b-set" title="settings">⚙</button>
+      <button id="b-schema" title="schema">{ }</button>
       <button id="b-lib" title="library">💾</button>
       <button id="b-play" class="accent" title="test">▶</button>
       <button id="redo" title="redo">↷</button>
@@ -549,44 +624,51 @@
         <canvas id="cv"></canvas>
         <div id="banner">LEVEL CLEAR</div>
         <button id="resetbtn">↺ reset</button>
-        <div id="playhint">drag the ball back · release to launch</div>
+        <div id="playhint">drag your hero back · release to launch</div>
+        <div id="nudge">
+          <button class="blank"></button>
+          <button data-n="0,-1">▲</button>
+          <button class="blank"></button>
+          <button data-n="-1,0">◀</button>
+          <button class="blank"></button>
+          <button data-n="1,0">▶</button>
+          <button class="blank"></button>
+          <button data-n="0,1">▼</button>
+          <button class="blank"></button>
+        </div>
       </div>
 
       <div id="tray"></div>
 
       <div id="inspector">
         <div class="row" id="matrow">
-          <span class="swwrap" data-m="wood"
-            ><span class="sw" style="background: var(--wood)"></span><span>wood</span></span
-          >
-          <span class="swwrap" data-m="stone"
-            ><span class="sw" style="background: var(--stone)"></span><span>stone</span></span
-          >
-          <span class="swwrap" data-m="metal"
-            ><span class="sw" style="background: var(--metal)"></span><span>metal</span></span
-          >
-          <span class="swwrap" data-m="ice"
-            ><span class="sw" style="background: var(--ice)"></span><span>ice</span></span
-          >
-          <span class="swwrap" data-m="rubber"
-            ><span class="sw" style="background: var(--rubber)"></span><span>rubber</span></span
-          >
-          <span class="swwrap" data-m="target"
-            ><span class="sw" style="background: var(--target)"></span><span>target</span></span
-          >
+          <span class="swwrap" data-m="wood"><span class="sw" style="background: var(--wood)"></span><span>wood</span></span>
+          <span class="swwrap" data-m="stone"><span class="sw" style="background: var(--stone)"></span><span>stone</span></span>
+          <span class="swwrap" data-m="metal"><span class="sw" style="background: var(--metal)"></span><span>metal</span></span>
+          <span class="swwrap" data-m="ice"><span class="sw" style="background: var(--ice)"></span><span>ice</span></span>
+          <span class="swwrap" data-m="rubber"><span class="sw" style="background: var(--rubber)"></span><span>rubber</span></span>
+          <span class="swwrap" data-m="target"><span class="sw" style="background: var(--target)"></span><span>target</span></span>
         </div>
-        <div id="hint">
-          ✋ tap=select · drag=move (lifts above your finger) · pinch=resize · twist=rotate. 🔍 pinch
-          zooms, drag pans, double-tap resets. Gravity only in ▶. Ice melts in Test.
+        <div class="row" id="bgrow">
+          <span class="lbl2">BACKDROP</span>
+          <span class="bgw" data-bg="grid" title="drafting grid" style="background: #101a27"></span>
+          <span class="bgw" data-bg="grass" title="grass" style="background: linear-gradient(#8ec9ef 55%, #79b356 55%)"></span>
+          <span class="bgw" data-bg="cave" title="cave" style="background: linear-gradient(#241c15, #33281e)"></span>
+          <span class="bgw" data-bg="desert" title="desert" style="background: linear-gradient(#f5cf8e 55%, #dba55e 55%)"></span>
+          <span class="bgw" data-bg="night" title="night" style="background: linear-gradient(#0a0e22, #1b2344)"></span>
+          <span class="bgw" data-bg="sky" title="sky" style="background: linear-gradient(#8fc3ec, #dceefb)"></span>
+          <span class="bgw" data-bg="custom" id="bg-custom" title="your image" style="display: none"></span>
+          <button id="bg-upload" title="upload backdrop image">🖼</button>
+          <button id="bg-brief" title="copyable brief for an image agent">📋</button>
+          <input type="file" id="bg-file" accept="image/*" style="display: none" />
         </div>
         <div id="selwrap" style="display: none">
           <div class="row">
+            <span class="chip tgl" id="tg-rot" title="rotate 90°">⟳</span>
             <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
             <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
             <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
-            <span class="chip tgl" id="tg-protect" title="protect target (hostage)" style="display: none"
-              >🛡️</span
-            >
+            <span class="chip tgl" id="tg-protect" title="protect target (hostage)" style="display: none">🛡️</span>
             <button id="del" title="delete">✕</button>
             <span id="readout"></span>
           </div>
@@ -594,11 +676,48 @@
       </div>
     </div>
 
+    <div class="modal" id="hmodal">
+      <h2>EMOJI WARS — HOW IT WORKS</h2>
+      <div id="helpbody">
+        <div class="sect"><b>The idea.</b> Build a level, fling your hero emoji at the villains. Villains are emoji stamped in <b>target</b> material — break them all to clear the level.</div>
+        <div class="sect"><b>Placing.</b> Arm a shape in the tray, tap the board to stamp it in the current material. 🖌 paint is different: drag to color in a freeform blob — it becomes one solid piece.</div>
+        <div class="sect"><b>Adjusting (✋).</b> Tap a piece to select. Drag to move — it lifts above your finger and edges magnet-snap flush (blobs skip the magnet). Pinch resizes. Twist or ⟳ rotates. The arrow pad nudges one grid square per tap.</div>
+        <div class="sect"><b>Looking (🔍).</b> Toggle 🔍, then pinch to zoom up to 4×, drag to pan, double-tap to reset.</div>
+        <div class="sect"><b>Materials.</b> wood breaks, stone barely breaks, metal never breaks, ice is slippery and <i>melts during Test</i>, rubber bounces, target is fragile and is the thing to destroy.</div>
+        <div class="sect"><b>Backdrops.</b> Pick scenery, or 🖼 upload your own 1600×900 image. 📋 copies a ready-made brief for an image agent — add your style notes, generate, import. A faint alignment grid overlays while editing.</div>
+        <div class="sect"><b>Behaviors.</b> ⚓ anchors a piece. ↔ gives it a patrol path. ✎ attaches a note. 🛡️ turns a target into a hostage to protect. Notes are your intent in words, which travels with the level.</div>
+        <div class="sect"><b>Test (▶).</b> Gravity exists only here. Drag the hero back from the launcher, release to fire. ■ returns to editing, level untouched.</div>
+        <div class="sect"><b>The schema ({ }).</b> The level is JSON. Copy it into a Claude chat; paste Claude's levels back and Load. 💾 saves named versions grouped into scenes, alongside committed levels.</div>
+      </div>
+      <div class="row"><button id="h-close" class="accent">Close</button></div>
+    </div>
+
+    <div class="modal" id="bmodal">
+      <h2>BACKDROP BRIEF — copy this to any image agent, add your style notes at the bottom, then 🖼 import the result.</h2>
+      <textarea id="brieftext" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="br-copy" class="accent">Copy brief</button>
+        <button id="br-close">Close</button>
+      </div>
+    </div>
+
+    <div class="modal" id="smodal">
+      <h2>SETTINGS</h2>
+      <div class="setrow">
+        <div class="setlbl">After stamping a piece<small>jump to ✋ with the new piece selected, or stay armed and keep stamping</small></div>
+        <button id="set-after"></button>
+      </div>
+      <div class="setrow">
+        <div class="setlbl">Hero<small>the emoji you fling — one hero across levels, set here (or in meta.hero)</small></div>
+        <button id="herobtn">🙂</button>
+      </div>
+      <div class="row"><button id="s-close" class="accent">Close</button></div>
+    </div>
+
     <div class="modal" id="modal">
       <h2>
         LEVEL SCHEMA — the contract between you and Claude.<br />
-        <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with
-        JSON pasted in.
+        <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with JSON pasted in.
       </h2>
       <textarea id="json" spellcheck="false"></textarea>
       <div id="err"></div>
@@ -614,10 +733,7 @@
 
     <div class="modal" id="nmodal">
       <h2>NOTE — intent, in your words. 🎤 tries in-browser transcription. Text rides in the schema.</h2>
-      <textarea
-        id="notetext"
-        placeholder="e.g. this tower should topple left when the top stone falls…"
-      ></textarea>
+      <textarea id="notetext" placeholder="e.g. the painted cave wall should crumble when the boulder lands…"></textarea>
       <div class="row">
         <button id="n-mic">🎤 dictate</button>
         <button id="n-cancel">Cancel</button>
@@ -626,13 +742,14 @@
     </div>
 
     <div class="modal" id="emodal">
-      <h2>
-        EMOJI STAMP — places as a round physics body in the current material.<br />
-        stone 🎃 is heavy · rubber 🦆 bounces · ice 😶‍🌫️ melts.
-      </h2>
+      <h2 id="etitle">EMOJI STAMP</h2>
+      <span class="elbl">RECENT</span>
+      <div id="erecents"></div>
+      <span class="elbl">QUICK PALETTE</span>
       <div id="epicks"></div>
+      <span class="elbl">ANY EMOJI — tap the box &amp; use your keyboard's emoji picker</span>
       <div class="row" id="erow">
-        <input type="text" id="einput" placeholder="🙂" maxlength="4" />
+        <input type="text" id="einput" placeholder="⌨️ → 😀" />
         <button id="e-set" class="accent">Use</button>
         <button id="e-close">Close</button>
       </div>
