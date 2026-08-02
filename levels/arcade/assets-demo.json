@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "0.8",
+  "meta": {
+    "name": "assets-demo",
+    "scene": "arcade",
+    "gravity": 1,
+    "note": "Committed-asset showcase (schema v0.8). meta.backgroundSrc points at backdrop.png in this level's folder; the blip villain uses object.sprite = sprites/blip.png. Both are committed files, resolved to bundled URLs at load — the file-based asset form Claude can author directly.",
+    "hero": "⚽",
+    "background": "custom",
+    "backgroundImage": null,
+    "backgroundSrc": "backdrop.png",
+    "mode": "slingshot",
+    "goal": null
+  },
+  "world": { "w": 1600, "h": 900, "floorY": 860 },
+  "slingshot": { "x": 230, "y": 770 },
+  "objects": [
+    { "id": "o1", "shape": "box", "x": 1120, "y": 820, "w": 40, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o2", "shape": "box", "x": 1260, "y": 820, "w": 40, "h": 80, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "" },
+    { "id": "o3", "shape": "box", "x": 1190, "y": 765, "w": 200, "h": 26, "angle": 0, "material": "wood", "anchored": false, "path": null, "note": "shelf" },
+    { "id": "o4", "shape": "emoji", "x": 1190, "y": 730, "r": 30, "angle": 0, "material": "target", "emoji": "🙂", "sprite": "sprites/blip.png", "anchored": false, "path": null, "note": "villain skinned by a committed sprite image" }
+  ]
+}

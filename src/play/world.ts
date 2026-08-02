@@ -77,6 +77,8 @@ export class PlaySession {
   private fragments: Fragment[] = [];
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private collisionHandler: CollisionHandler | null = null;
+  /** A static-geometry mirror used to roll out the aim trajectory. */
+  private previewEngine!: Matter.Engine;
   status: PlayStatus = 'playing';
 
   constructor(level: Level) {
@@ -92,6 +94,7 @@ export class PlaySession {
     ]);
 
     this.buildBodies();
+    this.buildPreview();
     this.wireCollisions();
     this.loadBall();
   }
@@ -241,6 +244,40 @@ export class PlaySession {
     for (const b of detonate) this.breakBody(b);
   }
 
+  /** Build a static-only mirror (floor, walls, anchored/pathed pieces) so the
+      aim preview can roll out a real, collision-aware trajectory. Dynamic
+      pieces are omitted — predicting through a shifting pile isn't meaningful. */
+  private buildPreview(): void {
+    const e = Engine.create({ enableSleeping: false });
+    e.gravity.y = this.engine.gravity.y;
+    const { w: W, h: H, floorY } = this.level.world;
+    Composite.add(e.world, [
+      Bodies.rectangle(W / 2, floorY + (H - floorY) / 2 + 40, W + 400, H - floorY + 80, { isStatic: true }),
+      Bodies.rectangle(-40, H / 2, 80, H * 3, { isStatic: true }),
+      Bodies.rectangle(W + 40, H / 2, 80, H * 3, { isStatic: true }),
+    ]);
+    for (const o of this.level.objects) {
+      if (o.anchored || o.path) Composite.add(e.world, makeMatterBody(o));
+    }
+    this.previewEngine = e;
+  }
+
+  /** Roll a probe from (px,py) at (vx,vy) through the static mirror. */
+  private predict(px: number, py: number, vx: number, vy: number): Array<{ x: number; y: number }> {
+    const probe = Bodies.circle(px, py, BALL_R, { density: BALL_DENSITY, friction: 0.6, restitution: 0.5 });
+    Composite.add(this.previewEngine.world, probe);
+    Body.setVelocity(probe, { x: vx, y: vy });
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < 60; i++) {
+      Engine.update(this.previewEngine, 1000 / 60);
+      pts.push({ x: probe.position.x, y: probe.position.y });
+      if (probe.position.y > this.level.world.h + 60) break;
+      if (probe.position.x < -60 || probe.position.x > this.level.world.w + 60) break;
+    }
+    Composite.remove(this.previewEngine.world, probe);
+    return pts;
+  }
+
   private loadBall(): void {
     this.ball = Bodies.circle(this.level.slingshot.x, this.level.slingshot.y - 30, BALL_R, {
       density: BALL_DENSITY,
@@ -365,15 +402,16 @@ export class PlaySession {
         ctx.lineTo(bx, by);
         ctx.lineTo(ax + 22, ay);
         ctx.stroke();
-        const vx = (ax - bx) * LAUNCH_FACTOR;
-        const vy = (ay - by) * LAUNCH_FACTOR;
-        ctx.fillStyle = 'rgba(255,138,61,.75)';
-        for (let i = 1; i <= 9; i++) {
-          const t = i * 0.09;
+        // headless rollout through the static geometry — bounces off ramps/walls
+        const traj = this.predict(bx, by, (ax - bx) * LAUNCH_FACTOR, (ay - by) * LAUNCH_FACTOR);
+        ctx.fillStyle = 'rgba(255,138,61,.85)';
+        for (let i = 0; i < traj.length; i += 2) {
+          ctx.globalAlpha = Math.max(0.15, 1 - i / traj.length);
           ctx.beginPath();
-          ctx.arc(bx + vx * t * 60, by + vy * t * 60 + 0.5 * (this.engine.gravity.y * 0.001 * Math.pow(t * 60, 2)) * 16.66, 4, 0, 7);
+          ctx.arc(traj[i].x, traj[i].y, 4, 0, 7);
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
       // hero: a round body skinned with meta.hero
       drawMaterialCtx(ctx, { shape: 'emoji', x: bx, y: by, r: BALL_R, angle: this.ball.angle * DEG, material: 'rubber', emoji: this.level.meta.hero || '🙂', note: '' }, false);
@@ -391,5 +429,9 @@ export class PlaySession {
     if (this.collisionHandler) Events.off(this.engine, 'collisionStart', this.collisionHandler);
     Composite.clear(this.engine.world, false, true);
     Engine.clear(this.engine);
+    if (this.previewEngine) {
+      Composite.clear(this.previewEngine.world, false, true);
+      Engine.clear(this.previewEngine);
+    }
   }
 }
