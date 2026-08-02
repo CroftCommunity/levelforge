@@ -12,10 +12,45 @@ to reach in to extend it.
 | 2 | PWA + persistence + GitHub Pages deploy | ✅ complete |
 | 3 | Game shell: level select, play route, win/lose, hero progression | ✅ complete |
 | 4 | Collab depth | ✅ mostly (see below) |
-| 5 | Character/drive mode | ✅ prototype |
+| 5 | Modes: slingshot + drop + drive | ✅ drop shipped; drive is a prototype |
 
 Schema is at **v0.8** (`src/schema.ts`). Every push to `main` auto-deploys to
 `levelforge.croft.ing` via `.github/workflows/deploy.yml`.
+
+## Drop mode + the world refactor (this pass)
+
+**World is level data now.** `level.world` (`w`, `h`, `floorY`) is the single
+source; two presets, `WIDE` 1600×900 and `TALL` 900×1600 (floor `h−40`), are the
+only sizes the ⚙ shape switch writes. No module reads a global world size —
+backdrops (`editor/backdrops.ts` painters take `W,H,fy`), thumbnails
+(`renderThumb`), view-fit/clamp (`main.ts`), the magnet floor, physics walls, and
+the agent brief (`agentBrief(world)`, computed dims + floor %) all derive from the
+level. The shape switch keeps every object coordinate, clamps the spawn, and
+toasts a count of pieces now out of bounds.
+
+**Drop mode** (`meta.mode: "drop"`, `src/play/drop.ts`): tap-to-hop descent. The
+hero spawns dynamic at the start marker (r 22, friction 0.35, restitution 0.15);
+a tap hops it only while grounded or within a coyote window. Grounded detection is
+real contact-based and lives in `src/play/grounded.ts` (`GroundTracker` +
+`heroHasFooting`), shared-ready for bounce. Feel constants (`HOP`, `COYOTE_MS`, and
+the bounce placeholders `JUMP`/`MAX_ROLL`/`ROLL_ACCEL`/`TAP_MS`) live in
+`src/play/tuning.ts` — phone-tuned placeholders. Villains restart the run
+(attempt++, red flash, no destruction); goals are `role:'goal'` static sensors
+(any material), drawn as a catch tray. Fixture: `levels/demo/first-descent.json`.
+Editor tie-ins: ⚙ mode cycles slingshot → drop → drive, the 🏁 chip toggles
+`role:'goal'`, and drop uses tall by default.
+
+### Naming note vs. SPEC.md/BUILD_PLAN.md
+
+The spec names the three modes `sling`/`drop`/`bounce` with goals expressed only as
+`role:'goal'`. This codebase predates that and shipped `slingshot`/`drive` with a
+`meta.goal` zone for drive. To keep the schema-as-contract promise (committed
+levels and the paste-and-load loop must not break), drop was added **additively**:
+`ModeKind` is `slingshot | drop | drive`, and `role:'goal'` is the goal mechanism
+for drop. `drive` is the spec's `bounce`; it still reads `meta.goal`. A future pass
+that wants full spec parity could migrate `drive→bounce` and `meta.goal→role:'goal'`
+in `migrate()` and fold both jump modes onto the shared `grounded.ts`/`tuning.ts`
+already in place — the seams are set up for it.
 
 ## Milestone 4 — what shipped vs. left
 
@@ -47,9 +82,10 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 
 ## Depth / polish opportunities (nice-to-have, not blocking)
 
-- **Drive-mode feel** (`play/drive.ts`). Grounded detection is a velocity
-  heuristic; add proper ground contact (collision normals), coyote time, and
-  variable jump height. Its own tuning pass, as the spec warns.
+- **Drive-mode feel** (`play/drive.ts`). Grounded detection is still a velocity
+  heuristic. Drop mode now ships a real contact-based `GroundTracker` +
+  `heroHasFooting` in `play/grounded.ts` with coyote time; drive can adopt it
+  directly for a quick, spec-aligned upgrade (and share `play/tuning.ts`).
 - **Blob fracture depth** (`play/world.ts` `fractureBlob`). Fragments are
   cosmetic debris that fade. Options: make chunks persistent/collidable for
   longer, or split a large blob into two sub-blobs at the impact seam instead of
@@ -96,6 +132,9 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 | Hit behaviors (explode) | `src/play/behaviors.ts` |
 | Blob fracture placement math | `src/play/fracture.ts` |
 | Slingshot Test runtime | `src/play/world.ts` |
+| Drop runtime (tap-to-hop) | `src/play/drop.ts` |
+| Grounded/coyote helper (shared) | `src/play/grounded.ts` |
+| Jump-mode feel constants | `src/play/tuning.ts` |
 | Drive runtime | `src/play/drive.ts` |
 | Forge + game shell + router (the glue) | `src/main.ts` |
 | Persistence (drafts, autosave, download) | `src/store.ts` |

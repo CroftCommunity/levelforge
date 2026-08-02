@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.8",
+  "meta": {"name":"first-descent","scene":"demo","gravity":1,"note":"tap-to-hop descent; reach the tray without touching a villain","hero":"🙂","mode":"drop","background":"night","backgroundImage":null},
+  "world": {"w":900,"h":1600,"floorY":1560},
+  "slingshot": {"x":140,"y":110},
+  "objects": [
+    {"id":"o1","shape":"box","x":260,"y":300,"w":420,"h":22,"angle":12,"material":"wood","anchored":true,"path":null,"note":""},
+    {"id":"o2","shape":"emoji","x":430,"y":266,"r":22,"angle":0,"material":"target","emoji":"🌵","anchored":true,"path":null,"note":"hop this"},
+    {"id":"o3","shape":"box","x":620,"y":520,"w":440,"h":22,"angle":-14,"material":"wood","anchored":true,"path":null,"note":""},
+    {"id":"o4","shape":"emoji","x":470,"y":478,"r":22,"angle":0,"material":"target","emoji":"👿","anchored":true,"path":null,"note":""},
+    {"id":"o5","shape":"box","x":280,"y":760,"w":440,"h":22,"angle":12,"material":"wood","anchored":true,"path":null,"note":""},
+    {"id":"o6","shape":"emoji","x":410,"y":722,"r":22,"angle":0,"material":"target","emoji":"🎃","anchored":true,"path":null,"note":""},
+    {"id":"o7","shape":"box","x":600,"y":1000,"w":420,"h":22,"angle":-12,"material":"wood","anchored":true,"path":null,"note":""},
+    {"id":"o8","shape":"box","x":450,"y":1180,"w":200,"h":22,"angle":0,"material":"metal","anchored":true,"path":{"x":700,"y":1180,"speed":80},"note":"moving step"},
+    {"id":"o9","shape":"box","x":450,"y":1548,"w":240,"h":24,"angle":0,"material":"stone","anchored":true,"path":null,"note":"catch tray","role":"goal"}
+  ]
+}

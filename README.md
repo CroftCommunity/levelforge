@@ -71,20 +71,32 @@ plays it (`#/play/<scene>/<file>` deep-links straight into play), with retry / n
 
 - **Slingshot** (default): fling `meta.hero` at villains (target-material emoji);
   clear them all. 💣/🧨 explode on break and chain-detonate neighbours.
+- **Drop** (`meta.mode: "drop"`, tap-to-hop descent): the hero spawns at the start
+  marker and falls; tap anywhere to hop, but only while grounded (real contact
+  underfoot) or within a short coyote window. Villains are hazards — touching one
+  flashes red and restarts the run (attempt counter, nothing destroyed). Reach an
+  object marked `role: "goal"` (a static sensor drawn as a catch tray) to clear.
+  Tall worlds suit it; grounded/coyote/feel constants live in `src/play/tuning.ts`.
 - **Drive** (`meta.mode: "drive"`, Red Ball style): steer the hero with on-screen
   ◀ ▶ / jump and reach the `meta.goal` 🏁 zone; target pieces are hazards.
 
 ## The schema (v0.8)
 
-World is fixed at 1600 × 900 units, origin top-left, y down. Positions are object
-centres; angles are degrees, clockwise positive. `src/schema.ts` is the single
+World dimensions are **level data**, not a constant: `level.world` carries `w`,
+`h`, `floorY`. Two editor presets — **wide** (1600 × 900) and **tall** (900 ×
+1600, floor at `h − 40`) — are the only sizes the ⚙ shape switch writes; tall is
+first-class for drop mode and portrait play. Every module (backdrops, thumbnails,
+view-fit, magnet floor, physics walls, the agent brief) derives from the level it
+was handed — nothing reads a global world size. Origin top-left, y down. Positions
+are object centres; angles are degrees, clockwise positive. `src/schema.ts` is the single
 source of truth — it validates strictly (types, ranges, unique ids, known enums)
 with human-readable errors, and migrates older versions forward (renaming the
 legacy `weld` key to `group`). Shapes: `box`, `circle`, `tri`, `emoji`, and `blob`
 (a painted freeform stroke, physically a compound of overlapping circles).
 `meta.hero` is the hero emoji; `meta.background` selects scenery; `meta.mode` and
 `meta.goal` drive the game mode. Per-object `group` (weld), `role` (destroy /
-protect), `hit` (behavior key), and `sprite` are supported and round-trip. Use the
+protect on targets, or `goal` on any object to mark a goal zone), `hit` (behavior
+key), and `sprite` are supported and round-trip. Use the
 schema modal (`{ }`) in-app to copy/paste levels.
 
 ## Levels library

@@ -7,6 +7,9 @@ import {
   migrateToCurrent,
   serializeLevel,
   maxIdNum,
+  floorYFor,
+  WIDE,
+  TALL,
   SchemaError,
   CURRENT_SCHEMA_VERSION,
   BRUSH_DEFAULT,
@@ -227,6 +230,61 @@ describe('validation — v0.8 mode/goal', () => {
     const out = validateLevel(migrateToCurrent(l));
     expect(out.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(out.meta.mode).toBe('slingshot');
+  });
+  it('accepts drop mode', () => {
+    expect(loadLevel(baseLevel([], { mode: 'drop' })).meta.mode).toBe('drop');
+  });
+});
+
+describe('world shape (the level refactor)', () => {
+  it('emptyLevel defaults to the wide preset', () => {
+    const l = emptyLevel();
+    expect(l.world).toEqual({ w: WIDE.w, h: WIDE.h, floorY: floorYFor(WIDE.h) });
+  });
+  it('emptyLevel("tall") uses the tall preset with a top spawn', () => {
+    const l = emptyLevel('tall');
+    expect(l.world).toEqual({ w: TALL.w, h: TALL.h, floorY: floorYFor(TALL.h) });
+    expect(l.world.floorY).toBe(1560);
+    expect(l.slingshot.y).toBeLessThan(l.world.h / 2);
+    expect(() => validateLevel(l)).not.toThrow();
+  });
+  it('accepts and preserves a tall world', () => {
+    const out = loadLevel({ ...baseLevel([]), world: { w: 900, h: 1600, floorY: 1560 } });
+    expect(out.world).toEqual({ w: 900, h: 1600, floorY: 1560 });
+  });
+});
+
+describe('role: goal (drop/drive goal zones)', () => {
+  it('accepts goal on a non-target material', () => {
+    const out = loadLevel(baseLevel([baseObject({ material: 'stone', role: 'goal' })]));
+    expect(out.objects[0].role).toBe('goal');
+  });
+  it('accepts goal on a target too', () => {
+    const out = loadLevel(baseLevel([baseObject({ id: 'o1', shape: 'circle', w: undefined, h: undefined, r: 20, material: 'target', emoji: undefined, role: 'goal' })]));
+    expect(out.objects[0].role).toBe('goal');
+  });
+  it('still rejects destroy/protect on non-target material', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ material: 'stone', role: 'protect' })]))).toThrow(/target/);
+  });
+  it('rejects an unknown role', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ role: 'win' })]))).toThrow(/role/);
+  });
+  it('round-trips the drop fixture unchanged apart from filled defaults', () => {
+    const fixture = {
+      schemaVersion: '0.8',
+      meta: { name: 'first-descent', scene: 'demo', gravity: 1, note: '', hero: '🙂', mode: 'drop', background: 'night', backgroundImage: null },
+      world: { w: 900, h: 1600, floorY: 1560 },
+      slingshot: { x: 140, y: 110 },
+      objects: [
+        { id: 'o1', shape: 'box', x: 260, y: 300, w: 420, h: 22, angle: 12, material: 'wood', anchored: true, path: null, note: '' },
+        { id: 'o9', shape: 'box', x: 450, y: 1548, w: 240, h: 24, angle: 0, material: 'stone', anchored: true, path: null, note: 'catch tray', role: 'goal' },
+      ],
+    };
+    const out = loadLevel(fixture);
+    expect(out.meta.mode).toBe('drop');
+    expect(out.objects[1].role).toBe('goal');
+    // idempotent
+    expect(loadLevel(JSON.parse(JSON.stringify(out)))).toEqual(out);
   });
 });
 

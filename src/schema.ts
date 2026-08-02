@@ -7,31 +7,51 @@
    FORWARD-ONLY and forgiving: it accepts every prior version (0.2 onward)
    and fills defaults; never break the paste-and-load loop.
 
-   Current schema: v0.7 (matches reference/levelforge.html forge v0.11).
-   The optional group/role/sprite/hit/backgroundSrc fields are v0.8-forward:
+   Current schema: v0.8 (matches reference/levelforge.html forge v0.12).
+   The optional group/role/sprite/hit/backgroundSrc fields are v0.8:
    accepted and preserved so levels authored against v0.8 round-trip, and so
    the already-shipped weld/protect behavior keeps working.
 
-   World is fixed at 1600 x 900, origin top-left, y down. Positions are
-   object centres. Angles are degrees, clockwise positive.
+   World dimensions are LEVEL DATA, not a constant: level.world holds w, h,
+   floorY. Two editor presets exist — WIDE (1600 x 900) and TALL (900 x 1600),
+   both with floorY = h - 40. Tall is first-class (drop mode, portrait play).
+   No module outside this file reads a global world size; everything derives
+   from the level it was handed. Origin top-left, y down. Positions are object
+   centres. Angles are degrees, clockwise positive.
    ===================================================================== */
 
 import { MaterialKey, isMaterialKey } from './materials';
 
 export const CURRENT_SCHEMA_VERSION = '0.8';
 
-export const WORLD = { w: 1600, h: 900 } as const;
-export const DEFAULT_FLOOR_Y = 860;
+/** World-shape presets. These are the ONLY world sizes the shape switcher
+    writes into a level; no consumer imports them to read "the" world size. */
+export const WIDE = { w: 1600, h: 900 } as const;
+export const TALL = { w: 900, h: 1600 } as const;
+/** The floor sits 40 units up from the bottom in both presets. */
+export function floorYFor(h: number): number {
+  return h - 40;
+}
+export type WorldShape = 'wide' | 'tall';
+
+/** Default world used to fill a level that arrives without one (migration). */
+export const WORLD = WIDE;
+export const DEFAULT_FLOOR_Y = floorYFor(WIDE.h); // 860
 export const DEFAULT_HERO = '🙂';
 /** Default blob brush radius, matching the reference BRUSH constant. */
 export const BRUSH_DEFAULT = 26;
 
 export type ShapeKind = 'box' | 'circle' | 'tri' | 'emoji' | 'blob';
-export type Role = 'destroy' | 'protect';
+/** Target roles plus the goal marker. destroy/protect are target-only; goal
+    marks any object as a goal zone (drop/bounce), a physics sensor in Test. */
+export type Role = 'destroy' | 'protect' | 'goal';
 export type BackgroundKind = 'grid' | 'grass' | 'cave' | 'desert' | 'night' | 'sky' | 'custom';
-/** v0.8: the game mode a level plays in. slingshot (default) or drive (Red Ball). */
-export type ModeKind = 'slingshot' | 'drive';
-export const MODES: ModeKind[] = ['slingshot', 'drive'];
+/** v0.8: the game mode a level plays in.
+    - slingshot: fling the hero at villains (the default).
+    - drop: tap-to-hop descent; reach a role:'goal' tray without touching a villain.
+    - drive: Red Ball — steer the hero to the meta.goal zone. */
+export type ModeKind = 'slingshot' | 'drop' | 'drive';
+export const MODES: ModeKind[] = ['slingshot', 'drop', 'drive'];
 
 export const BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky', 'custom'];
 /** Procedural (non-custom) backgrounds — those that need no image. */
@@ -70,7 +90,8 @@ export interface LevelObject {
   brushR?: number;
   /** v0.8-forward: weld-group key (objects sharing it fuse in Test). */
   group?: string;
-  /** v0.8-forward: target role. Omitted means "destroy". */
+  /** v0.8-forward: target role (destroy/protect) or goal-zone marker.
+      Omitted on a target means "destroy". */
   role?: Role;
   /** v0.8-forward: custom emoji sprite filename. */
   sprite?: string;
@@ -132,7 +153,12 @@ export class SchemaError extends Error {
 /* Construction helpers                                                    */
 /* --------------------------------------------------------------------- */
 
-export function emptyLevel(): Level {
+export function emptyLevel(shape: WorldShape = 'wide'): Level {
+  const preset = shape === 'tall' ? TALL : WIDE;
+  const floorY = floorYFor(preset.h);
+  // Tall levels suit drop mode, so spawn near the top; wide levels launch from
+  // the lower-left as a slingshot.
+  const slingshot = shape === 'tall' ? { x: 140, y: 110 } : { x: 230, y: floorY - 90 };
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: {
@@ -146,8 +172,8 @@ export function emptyLevel(): Level {
       mode: 'slingshot',
       goal: null,
     },
-    world: { w: WORLD.w, h: WORLD.h, floorY: DEFAULT_FLOOR_Y },
-    slingshot: { x: 230, y: DEFAULT_FLOOR_Y - 90 },
+    world: { w: preset.w, h: preset.h, floorY },
+    slingshot,
     objects: [],
   };
 }
@@ -207,7 +233,7 @@ function normalizeToCurrent(l: Loose): Loose {
   if (l.meta.background === 'custom' && !l.meta.backgroundImage && !l.meta.backgroundSrc) {
     l.meta.background = 'grid';
   }
-  if (l.meta.mode !== 'drive') l.meta.mode = 'slingshot';
+  if (l.meta.mode !== 'drive' && l.meta.mode !== 'drop') l.meta.mode = 'slingshot';
   if (l.meta.goal === undefined) l.meta.goal = null;
   if (Array.isArray(l.objects)) {
     for (const o of l.objects) {
@@ -335,8 +361,11 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
     out.group = obj.group;
   }
   if (obj.role != null) {
-    req(obj.role === 'destroy' || obj.role === 'protect', `${where}.role must be "destroy" or "protect".`);
-    req(obj.material === 'target', `${where}.role is only valid on target material.`);
+    req(obj.role === 'destroy' || obj.role === 'protect' || obj.role === 'goal', `${where}.role must be "destroy", "protect", or "goal".`);
+    // destroy/protect are target-only; goal marks any object as a goal zone.
+    if (obj.role === 'destroy' || obj.role === 'protect') {
+      req(obj.material === 'target', `${where}.role "${obj.role}" is only valid on target material.`);
+    }
     out.role = obj.role;
   }
   if (obj.sprite != null) {
@@ -358,7 +387,7 @@ export function validateLevel(input: unknown): Level {
   const meta = l.meta ?? {};
   req(typeof meta === 'object', 'meta must be an object.');
   const background = BACKGROUNDS.includes(meta.background) ? (meta.background as BackgroundKind) : 'grid';
-  const mode: ModeKind = meta.mode === 'drive' ? 'drive' : 'slingshot';
+  const mode: ModeKind = meta.mode === 'drive' ? 'drive' : meta.mode === 'drop' ? 'drop' : 'slingshot';
   let goal: GoalDef | null = null;
   if (meta.goal != null) {
     req(typeof meta.goal === 'object', 'meta.goal must be null or an object.');

@@ -8,7 +8,7 @@
    ===================================================================== */
 
 import { MATERIALS, MaterialKey } from '../materials';
-import { WORLD, BRUSH_DEFAULT, BlobPoint } from '../schema';
+import { WIDE, BRUSH_DEFAULT, BlobPoint } from '../schema';
 import { triVerts } from './geometry';
 import { drawBackdrop } from './backdrops';
 import { getSpriteImg } from './sprites';
@@ -31,7 +31,7 @@ export interface RenderObject {
   anchored?: boolean;
   path?: unknown;
   note?: string;
-  role?: 'destroy' | 'protect';
+  role?: 'destroy' | 'protect' | 'goal';
 }
 
 function hash(n: number): number {
@@ -230,6 +230,17 @@ export function drawMaterialCtx(
     c.textBaseline = 'middle';
     c.fillText('⚓', 0, 0);
   }
+  if (o.role === 'goal') {
+    // goal-zone marker: a checkered flag riding above the piece (the tray/post
+    // itself is the object). Mode decides tray-vs-flag framing in the runtime.
+    c.globalAlpha = ghost ? 0.6 : 1;
+    const half = o.shape === 'box' ? (o.h ?? 40) / 2 : (o.r ?? o.w ?? 40) / 1;
+    const fs = Math.max(24, o.shape === 'box' ? Math.min(o.w ?? 44, (o.h ?? 44) * 2) : (o.r ?? 30) * 1.6);
+    c.font = fs + 'px system-ui,sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('🏁', 0, -half - fs * 0.5);
+  }
   if (o.note) {
     c.globalAlpha = 1;
     c.fillStyle = '#ff8a3d';
@@ -279,15 +290,19 @@ export function renderThumb(
   canvasEl: HTMLCanvasElement,
   lvl: {
     meta?: { background?: string; backgroundImage?: string | null; backgroundSrc?: string | null; hero?: string };
-    world?: { floorY?: number };
+    world?: { w?: number; h?: number; floorY?: number };
     slingshot: { x: number; y: number };
     objects: RenderObject[];
   },
 ): void {
   const c = canvasEl.getContext('2d');
   if (!c) return;
-  const s = canvasEl.width / WORLD.w;
-  c.setTransform(s, 0, 0, s, 0, (canvasEl.height - WORLD.h * s) / 2);
+  // Fit the level's world into the thumbnail, centred — derive from the level,
+  // never a global, so tall levels thumbnail correctly.
+  const W = lvl.world?.w ?? WIDE.w;
+  const H = lvl.world?.h ?? WIDE.h;
+  const s = Math.min(canvasEl.width / W, canvasEl.height / H);
+  c.setTransform(s, 0, 0, s, (canvasEl.width - W * s) / 2, (canvasEl.height - H * s) / 2);
   drawBackdrop(c, lvl, false);
   drawSlingshotCtx(c, lvl.slingshot.x, lvl.slingshot.y, false);
   for (const o of lvl.objects || []) drawMaterialCtx(c, { ...o, note: '' }, false);

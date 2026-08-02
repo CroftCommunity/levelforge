@@ -18,14 +18,16 @@ import {
   maxIdNum,
   serializeLevel,
   parseLevel,
-  WORLD,
+  WIDE,
+  TALL,
+  floorYFor,
   DEFAULT_HERO,
   BRUSH_DEFAULT,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
 import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, GeomObject } from './editor/geometry';
 import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
-import { drawBackdrop, AGENT_BRIEF } from './editor/backdrops';
+import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
   autosaveWorking,
   loadWorking,
@@ -38,6 +40,7 @@ import {
 import { committedLevels, CommittedLevel } from './levels-manifest';
 import { PlaySession } from './play/world';
 import { DriveSession } from './play/drive';
+import { DropSession } from './play/drop';
 import { searchEmoji } from './editor/emoji-data';
 
 const MAXZOOM = 4;
@@ -199,8 +202,8 @@ function orient(): void {
 function clampView(): void {
   view.zoom = Math.min(Math.max(view.zoom, 1), MAXZOOM);
   view.scale = view.fit * view.zoom;
-  const W = WORLD.w * view.scale;
-  const H = WORLD.h * view.scale;
+  const W = level.world.w * view.scale;
+  const H = level.world.h * view.scale;
   if (W <= cw) view.ox = (cw - W) / 2;
   else view.ox = Math.min(0, Math.max(cw - W, view.ox));
   if (H <= chh) view.oy = (chh - H) / 2;
@@ -215,7 +218,7 @@ function resize(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cw = r.width;
   chh = r.height;
-  view.fit = Math.min(cw / WORLD.w, chh / WORLD.h);
+  view.fit = Math.min(cw / level.world.w, chh / level.world.h);
   clampView();
 }
 function resetView(): void {
@@ -244,11 +247,36 @@ function drawWorldBase(editGrid: boolean): void {
   drawBackdrop(ctx, level, editGrid);
 }
 
+/** A spawn pad for the non-slingshot modes (the launcher reinterpreted). */
+function drawStartPad(c: CanvasRenderingContext2D, x: number, y: number): void {
+  c.save();
+  c.strokeStyle = 'rgba(200,215,235,.8)';
+  c.lineWidth = 3 / view.zoom;
+  c.setLineDash([8, 7]);
+  c.beginPath();
+  c.arc(x, y, 30, 0, 7);
+  c.stroke();
+  c.setLineDash([]);
+  c.fillStyle = 'rgba(200,215,235,.85)';
+  c.font = '14px ui-monospace,monospace';
+  c.textAlign = 'center';
+  c.fillText('start', x, y + 52);
+  c.restore();
+}
+
 function drawEdit(): void {
   drawWorldBase(true);
-  drawSlingshotCtx(ctx, level.slingshot.x, level.slingshot.y, true);
-  // ghost hero at the launcher
-  drawMaterialCtx(ctx, { shape: 'emoji', x: level.slingshot.x, y: level.slingshot.y - 30, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+  const sx = level.slingshot.x;
+  const sy = level.slingshot.y;
+  if (level.meta.mode === 'slingshot') {
+    drawSlingshotCtx(ctx, sx, sy, true);
+    // ghost hero at the launcher
+    drawMaterialCtx(ctx, { shape: 'emoji', x: sx, y: sy - 30, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+  } else {
+    // drop/drive reinterpret the launcher as a spawn pad
+    drawStartPad(ctx, sx, sy);
+    drawMaterialCtx(ctx, { shape: 'emoji', x: sx, y: sy, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+  }
   // drive-mode goal handle
   if (level.meta.mode === 'drive' && level.meta.goal) {
     const g = level.meta.goal;
@@ -273,8 +301,8 @@ function drawEdit(): void {
     ctx.textAlign = 'center';
     ctx.fillText(
       armed ? (armed.shape === 'blob' ? 'drag to paint' : 'tap the board to stamp') : 'arm a shape, then tap the board · 💡 explains everything',
-      WORLD.w / 2,
-      WORLD.h * 0.42,
+      level.world.w / 2,
+      level.world.h * 0.42,
     );
   }
   for (const o of level.objects) {
@@ -481,6 +509,7 @@ cv.addEventListener('pointerdown', (e) => {
 
   if (mode === 'play') {
     if (session instanceof PlaySession) session.pointerDown(p);
+    else if (session instanceof DropSession) session.tap();
     return;
   }
 
@@ -893,18 +922,47 @@ $('set-after').onclick = () => {
 };
 $('set-mode').onclick = () => {
   snap();
-  if (level.meta.mode === 'drive') {
-    level.meta.mode = 'slingshot';
-  } else {
+  // cycle slingshot → drop → drive → slingshot
+  if (level.meta.mode === 'slingshot') {
+    level.meta.mode = 'drop';
+    // drop plays top-to-bottom: move the spawn marker up near the ceiling
+    level.slingshot.y = Math.min(level.slingshot.y, 120);
+    level.slingshot.x = Math.max(60, Math.min(level.slingshot.x, level.world.w - 60));
+    if (!level.objects.some((o) => o.role === 'goal')) {
+      toast('drop mode — mark a piece as the 🏁 goal (catch tray) so it can be cleared');
+    }
+  } else if (level.meta.mode === 'drop') {
     level.meta.mode = 'drive';
-    // give drive levels a goal to reach if they don't have one yet
+    // give drive levels a goal zone to reach if they don't have one yet
     if (!level.meta.goal) level.meta.goal = { x: level.world.w - 220, y: level.world.floorY - 60, r: 44 };
+  } else {
+    level.meta.mode = 'slingshot';
   }
   syncSettings();
 };
+$('set-shape').onclick = () => {
+  snap();
+  const goTall = level.world.w >= level.world.h; // currently wide → switch to tall
+  const preset = goTall ? TALL : WIDE;
+  level.world.w = preset.w;
+  level.world.h = preset.h;
+  level.world.floorY = floorYFor(preset.h);
+  // clamp the spawn/launcher back into bounds; keep every object coordinate
+  level.slingshot.x = Math.max(20, Math.min(level.slingshot.x, level.world.w - 20));
+  level.slingshot.y = Math.max(20, Math.min(level.slingshot.y, level.world.floorY - 20));
+  const oob = level.objects.filter((o) => o.x < 0 || o.x > level.world.w || o.y < 0 || o.y > level.world.h).length;
+  resize();
+  syncSettings();
+  toast(oob ? `${goTall ? 'tall' : 'wide'} world — ${oob} piece${oob > 1 ? 's' : ''} now out of bounds` : `${goTall ? 'tall' : 'wide'} world`);
+};
+function modeLabel(m: Level['meta']['mode']): string {
+  return m === 'drive' ? '🏁 drive (Red Ball)' : m === 'drop' ? '🪂 drop (tap to hop)' : '🎯 slingshot';
+}
 function syncSettings(): void {
   $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
-  $('set-mode').textContent = level.meta.mode === 'drive' ? '🏁 drive (Red Ball)' : '🎯 slingshot';
+  $('set-mode').textContent = modeLabel(level.meta.mode);
+  const tall = level.world.h > level.world.w;
+  $('set-shape').textContent = `${tall ? '⬍ tall' : '⬌ wide'} ${level.world.w}×${level.world.h}`;
   syncHero();
 }
 $('herobtn').onclick = () => {
@@ -953,7 +1011,7 @@ $<HTMLInputElement>('bg-file').addEventListener('change', (e) => {
   rd.readAsDataURL(f);
 });
 $('bg-brief').onclick = () => {
-  $<HTMLTextAreaElement>('brieftext').value = AGENT_BRIEF;
+  $<HTMLTextAreaElement>('brieftext').value = agentBrief(level.world);
   $('bmodal').style.display = 'flex';
 };
 $('br-close').onclick = () => ($('bmodal').style.display = 'none');
@@ -986,6 +1044,7 @@ function syncInspector(): void {
   const protect = $('tg-protect');
   protect.style.display = sel.material === 'target' ? 'flex' : 'none';
   protect.classList.toggle('on', sel.role === 'protect');
+  $('tg-goal').classList.toggle('on', sel.role === 'goal');
   syncReadout();
 }
 function syncReadout(): void {
@@ -1025,7 +1084,7 @@ $('tg-move').onclick = () => {
   const s = selected();
   if (!s) return;
   snap();
-  s.path = s.path ? null : { x: Math.min(s.x + 200, WORLD.w - 40), y: s.y, speed: 90 };
+  s.path = s.path ? null : { x: Math.min(s.x + 200, level.world.w - 40), y: s.y, speed: 90 };
   syncInspector();
 };
 $('tg-protect').onclick = () => {
@@ -1033,6 +1092,19 @@ $('tg-protect').onclick = () => {
   if (!s || s.material !== 'target') return;
   snap();
   s.role = s.role === 'protect' ? 'destroy' : 'protect';
+  syncInspector();
+};
+$('tg-goal').onclick = () => {
+  const s = selected();
+  if (!s) return;
+  snap();
+  if (s.role === 'goal') {
+    delete s.role;
+    toast('goal cleared');
+  } else {
+    s.role = 'goal';
+    toast('goal set — reach it to clear the level (catch tray in drop, flag in drive)');
+  }
   syncInspector();
 };
 $('tg-weld').onclick = () => {
@@ -1352,8 +1424,8 @@ function renderLib(): void {
 /* --------------------------- Test mode -------------------------------- */
 type PlayCtx = { source: 'forge' } | { source: 'shell'; cards: CommittedLevel[]; index: number };
 let mode: 'edit' | 'play' = 'edit';
-let session: PlaySession | DriveSession | null = null;
-let playKind: 'slingshot' | 'drive' = 'slingshot';
+let session: PlaySession | DriveSession | DropSession | null = null;
+let playKind: 'slingshot' | 'drive' | 'drop' = 'slingshot';
 let playCtx: PlayCtx = { source: 'forge' };
 let lastStatus: 'playing' | 'won' | 'failed' = 'playing';
 
@@ -1367,9 +1439,15 @@ function newSession(): void {
   hideBanner();
   lastStatus = 'playing';
   session?.destroy();
-  playKind = level.meta.mode === 'drive' ? 'drive' : 'slingshot';
-  session = playKind === 'drive' ? new DriveSession(level) : new PlaySession(level);
-  $('playhint').textContent = playKind === 'drive' ? 'steer with ◀ ▶ · ⤒ to jump · reach the 🏁 goal' : 'drag your hero back · release to launch';
+  playKind = level.meta.mode === 'drive' ? 'drive' : level.meta.mode === 'drop' ? 'drop' : 'slingshot';
+  session = playKind === 'drive' ? new DriveSession(level) : playKind === 'drop' ? new DropSession(level) : new PlaySession(level);
+  $('playhint').textContent =
+    playKind === 'drive'
+      ? 'steer with ◀ ▶ · ⤒ to jump · reach the 🏁 goal'
+      : playKind === 'drop'
+        ? 'tap anywhere to hop · reach the 🏁 tray, dodge the villains'
+        : 'drag your hero back · release to launch';
+  // drive uses on-screen ◀ ▶ ⤒; drop taps anywhere on the board
   $('drive').style.display = playKind === 'drive' ? 'flex' : 'none';
 }
 function startPlay(ctx: PlayCtx = { source: 'forge' }): void {
@@ -1467,6 +1545,13 @@ function drawPlay(dt: number): void {
     ctx.font = '16px ui-monospace,monospace';
     ctx.textAlign = 'left';
     ctx.fillText('villains: ' + session.targetsLeft, 20, 33);
+  } else if (playKind === 'drop' && session instanceof DropSession) {
+    ctx.fillStyle = 'rgba(20,28,40,.65)';
+    ctx.fillRect(10, 12, 170, 30);
+    ctx.fillStyle = '#d8e2ef';
+    ctx.font = '16px ui-monospace,monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('attempts: ' + session.attempts, 20, 33);
   }
   ctx.restore();
 
@@ -1474,7 +1559,7 @@ function drawPlay(dt: number): void {
     lastStatus = session.status;
     const banner = $('banner');
     if (session.status === 'won') {
-      banner.textContent = playKind === 'drive' ? 'GOAL! 🏁' : 'LEVEL CLEAR';
+      banner.textContent = playKind === 'slingshot' ? 'LEVEL CLEAR' : 'GOAL! 🏁';
       banner.classList.remove('fail');
       banner.style.display = 'block';
       if (playCtx.source === 'shell' && playCtx.index < playCtx.cards.length - 1) $('nextbtn').style.display = 'block';
@@ -1549,7 +1634,7 @@ function renderShell(): void {
       card.appendChild(nm);
       const badge = document.createElement('div');
       badge.className = 'badge';
-      badge.textContent = c.level.meta.mode === 'drive' ? '🏁 drive' : '🎯 fling';
+      badge.textContent = c.level.meta.mode === 'drive' ? '🏁 drive' : c.level.meta.mode === 'drop' ? '🪂 drop' : '🎯 fling';
       card.appendChild(badge);
       const edit = document.createElement('button');
       edit.className = 'edit';
