@@ -367,6 +367,30 @@ function drawEdit(): void {
       ctx.arc(0, 0, sel.r! + 7, 0, 7);
       ctx.stroke();
     }
+    // corner grab-handles: drag one to free-rotate the piece in place
+    const ext = handleExtents(sel);
+    if (ext) {
+      // for non-box shapes, draw the rectangular guide the handles sit on
+      if (sel.shape !== 'box') {
+        ctx.setLineDash([6, 5]);
+        ctx.strokeStyle = '#ff8a3d';
+        ctx.lineWidth = 2 / view.zoom;
+        ctx.globalAlpha = 0.6;
+        ctx.strokeRect(-ext.hw, -ext.hh, ext.hw * 2, ext.hh * 2);
+        ctx.globalAlpha = 1;
+      }
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ff8a3d';
+      ctx.strokeStyle = '#1a1205';
+      ctx.lineWidth = 1.5 / view.zoom;
+      const hr = 7 / view.zoom;
+      for (const [sx, sy] of CORNER_SIGNS) {
+        ctx.beginPath();
+        ctx.arc(sx * ext.hw, sy * ext.hh, hr, 0, 7);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
     ctx.restore();
     ctx.setLineDash([]);
   }
@@ -393,6 +417,7 @@ type Gesture =
   | { kind: 'vzoom'; d0: number; m0: { sx: number; sy: number }; z0: number; ox0: number; oy0: number }
   | { kind: 'vpan'; last: { sx: number; sy: number } }
   | { kind: 'pinch'; d0: number; a0: number; o: LevelObject }
+  | { kind: 'rotate'; cx: number; cy: number; a0: number; pa0: number }
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
   | { kind: 'paint'; pts: { x: number; y: number }[] }
   | { kind: 'path' }
@@ -437,6 +462,43 @@ function hitObject(p: { x: number; y: number }): LevelObject | null {
 }
 const near = (p: { x: number; y: number }, x: number, y: number, r: number): boolean =>
   (p.x - x) ** 2 + (p.y - y) ** 2 <= r * r;
+
+/** Local (unrotated) half-extents of a piece's rotate-handle guide box, or
+ *  null for radially-symmetric shapes (circle/emoji) that have no corners. */
+function handleExtents(o: LevelObject): { hw: number; hh: number } | null {
+  if (o.shape === 'box' || o.shape === 'tri') return { hw: o.w! / 2 + 6, hh: o.h! / 2 + 6 };
+  if (o.shape === 'blob') {
+    let mx = 0;
+    let my = 0;
+    for (const [px, py] of o.pts!) {
+      mx = Math.max(mx, Math.abs(px));
+      my = Math.max(my, Math.abs(py));
+    }
+    const r = o.brushR ?? BRUSH;
+    return { hw: mx + r + 6, hh: my + r + 6 };
+  }
+  return null;
+}
+/** The four corner offsets of the guide box, in local space. */
+const CORNER_SIGNS: [number, number][] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
+/** World-space positions of the four corner rotate handles, or null. */
+function handleCorners(o: LevelObject): { x: number; y: number }[] | null {
+  const ext = handleExtents(o);
+  if (!ext) return null;
+  const a = (o.angle || 0) / DEG;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return CORNER_SIGNS.map(([sx, sy]) => {
+    const lx = sx * ext.hw;
+    const ly = sy * ext.hh;
+    return { x: o.x + lx * c - ly * s, y: o.y + lx * s + ly * c };
+  });
+}
 
 function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
   const res = magnetSnap(sel as GeomObject, level.objects as GeomObject[], { zoom: view.zoom, floorY: level.world.floorY });
@@ -536,6 +598,20 @@ cv.addEventListener('pointerdown', (e) => {
   }
   if (pointers.size > 1) return;
 
+  // grab a corner of the selection's guide box to free-rotate it in place
+  const rotSel = selected();
+  if (rotSel && !armed) {
+    const corners = handleCorners(rotSel);
+    if (corners) {
+      const hitR = 16 / view.zoom + 4;
+      if (corners.some((c) => near(p, c.x, c.y, hitR))) {
+        snap();
+        gesture = { kind: 'rotate', cx: rotSel.x, cy: rotSel.y, a0: rotSel.angle || 0, pa0: Math.atan2(p.y - rotSel.y, p.x - rotSel.x) };
+        return;
+      }
+    }
+  }
+
   if (armed && armed.shape === 'blob') {
     gesture = { kind: 'paint', pts: [p] };
     return;
@@ -625,6 +701,14 @@ cv.addEventListener('pointermove', (e) => {
       sel.r = Math.max(14, gesture.o.r! * k);
     }
     sel.angle = Math.round(gesture.o.angle + (ang - gesture.a0) * DEG);
+  } else if (gesture.kind === 'rotate' && sel) {
+    const pa = Math.atan2(p.y - gesture.cy, p.x - gesture.cx);
+    let deg = gesture.a0 + (pa - gesture.pa0) * DEG;
+    // soft-snap to 15° steps so common decline angles are easy to hit exactly
+    const nearest = Math.round(deg / 15) * 15;
+    if (Math.abs(deg - nearest) <= 3) deg = nearest;
+    sel.angle = ((Math.round(deg) % 360) + 360) % 360;
+    syncReadout();
   } else if (gesture.kind === 'move' && sel) {
     if (!gesture.lifted) {
       const ds = Math.hypot(sp.sx - gesture.s0.sx, sp.sy - gesture.s0.sy);
