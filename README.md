@@ -80,7 +80,9 @@ plays it (`#/play/<scene>/<file>` deep-links straight into play), with retry / n
   object marked `role: "goal"` (a static sensor drawn as a catch tray) to clear.
   Tall worlds suit it; grounded/coyote/feel constants live in `src/play/tuning.ts`.
 - **Drive** (`meta.mode: "drive"`, Red Ball style): steer the hero with on-screen
-  ◀ ▶ / jump and reach the `meta.goal` 🏁 zone; target pieces are hazards.
+  ◀ ▶ / jump and reach the `meta.goal` 🏁 zone; target pieces are hazards. The
+  hero is a rubber ball; its bounciness is tunable per level via a Settings
+  slider (`meta.bounce`, restitution 0–1; unset uses the rubber default).
 
 ## The schema (v0.8)
 

@@ -1076,11 +1076,38 @@ $('set-shape').onclick = () => {
 function modeLabel(m: Level['meta']['mode']): string {
   return m === 'drive' ? '🏁 drive (Red Ball)' : m === 'drop' ? '🪂 drop (tap to hop)' : '🎯 slingshot';
 }
+
+/* Hero bounciness (drive mode) — meta.bounce is restitution 0–1; the slider is a
+   0–100 percentage. Unset falls back to the rubber material's own bounce. */
+const DEFAULT_BOUNCE = MATERIALS.rubber.restitution;
+const bounceEl = $<HTMLInputElement>('set-bounce');
+let bounceDirty = false;
+bounceEl.addEventListener('input', () => {
+  if (!bounceDirty) {
+    snap(); // one undo step per drag/keyboard-adjust, taken before the first change
+    bounceDirty = true;
+  }
+  const pct = Number(bounceEl.value);
+  level.meta.bounce = pct / 100;
+  $('set-bounce-val').textContent = `${pct}%`;
+});
+bounceEl.addEventListener('change', () => {
+  bounceDirty = false;
+});
+
 function syncSettings(): void {
   $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
   $('set-mode').textContent = modeLabel(level.meta.mode);
   const tall = level.world.h > level.world.w;
   $('set-shape').textContent = `${tall ? '⬍ tall' : '⬌ wide'} ${level.world.w}×${level.world.h}`;
+  // Bounciness only matters in drive mode — show the slider there, hide it elsewhere.
+  const drive = level.meta.mode === 'drive';
+  $('set-bounce-row').style.display = drive ? '' : 'none';
+  if (drive) {
+    const pct = Math.round((level.meta.bounce ?? DEFAULT_BOUNCE) * 100);
+    bounceEl.value = String(pct);
+    $('set-bounce-val').textContent = `${pct}%`;
+  }
   syncHero();
 }
 $('herobtn').onclick = () => {

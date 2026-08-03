@@ -101,6 +101,21 @@ describe('validation — meta', () => {
     expect(out.meta.hero).toBe('⚽');
     expect(out.meta.background).toBe('cave');
   });
+  it('leaves meta.bounce unset by default', () => {
+    const out = loadLevel(baseLevel([], {}));
+    expect(out.meta.bounce).toBeUndefined();
+  });
+  it('keeps a valid drive-mode bounce value', () => {
+    const out = loadLevel(baseLevel([], { mode: 'drive', bounce: 0.4 }));
+    expect(out.meta.bounce).toBe(0.4);
+  });
+  it('clamps an out-of-range bounce into [0,1]', () => {
+    expect(loadLevel(baseLevel([], { bounce: 5 })).meta.bounce).toBe(1);
+    expect(loadLevel(baseLevel([], { bounce: -2 })).meta.bounce).toBe(0);
+  });
+  it('ignores a non-numeric bounce', () => {
+    expect(loadLevel(baseLevel([], { bounce: 'high' })).meta.bounce).toBeUndefined();
+  });
   it('coerces an unknown background to grid', () => {
     const out = loadLevel(baseLevel([], { background: 'lava' }));
     expect(out.meta.background).toBe('grid');
