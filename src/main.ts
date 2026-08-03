@@ -42,6 +42,7 @@ import { PlaySession } from './play/world';
 import { DriveSession } from './play/drive';
 import { DropSession } from './play/drop';
 import { searchEmoji } from './editor/emoji-data';
+import { behaviorFor, EFFECTS, HIT_BEHAVIORS } from './play/behaviors';
 
 const MAXZOOM = 4;
 const BRUSH = BRUSH_DEFAULT;
@@ -1044,6 +1045,12 @@ function syncInspector(): void {
   const protect = $('tg-protect');
   protect.style.display = sel.material === 'target' ? 'flex' : 'none';
   protect.classList.toggle('on', sel.role === 'protect');
+  const effect = $('tg-effect');
+  effect.style.display = sel.shape === 'emoji' ? 'flex' : 'none';
+  const eff = behaviorFor(sel);
+  effect.classList.toggle('on', !!eff);
+  effect.textContent = eff ? EFFECTS[eff].icon : '✨';
+  effect.title = eff ? `hit effect: ${EFFECTS[eff].label}` : 'hit effect (emoji)';
   $('tg-goal').classList.toggle('on', sel.role === 'goal');
   syncReadout();
 }
@@ -1160,12 +1167,77 @@ $<HTMLInputElement>('sprite-file').addEventListener('change', (e) => {
   rd.onerror = () => toast('could not read that image');
   rd.readAsDataURL(f);
 });
+$('copy').onclick = () => {
+  const s = selected();
+  if (!s) return;
+  snap();
+  const dup: LevelObject = JSON.parse(JSON.stringify(s));
+  dup.id = nid();
+  // offset a touch so the copy is visible, then clamp inside the world
+  const off = SNAP * 2;
+  dup.x = Math.max(0, Math.min(s.x + off, level.world.w));
+  dup.y = Math.max(0, Math.min(s.y + off, level.world.h));
+  // a copy is an independent piece — it keeps material, role, anchor, path,
+  // note, sprite and its ✨ hit effect, but not the weld relationship (which
+  // would fuse it to the original as one rigid body).
+  delete dup.group;
+  level.objects.push(dup);
+  if (selId) prevSelId = selId;
+  selId = dup.id;
+  syncInspector();
+  toast('copied — same attributes; drag it into place');
+};
 $('del').onclick = () => {
   if (!selId) return;
   snap();
   level.objects = level.objects.filter((o) => o.id !== selId);
   selId = null;
   syncInspector();
+};
+
+/* ---------------------------- hit effects ----------------------------- */
+function openEffectPicker(): void {
+  const sel = selected();
+  if (!sel || sel.shape !== 'emoji') return;
+  const cur = behaviorFor(sel);
+  const list = $('eflist');
+  list.innerHTML = '';
+  for (const key of HIT_BEHAVIORS) {
+    const spec = EFFECTS[key];
+    const opt = document.createElement('div');
+    opt.className = 'efopt' + (cur === key ? ' on' : '');
+    opt.innerHTML = `<span class="efico">${spec.icon}</span><span><span class="efname">${spec.label}</span><br /><span class="efblurb">${spec.blurb}</span></span>`;
+    opt.addEventListener('click', () => {
+      const s = selected();
+      if (!s) return;
+      snap();
+      s.hit = key;
+      syncInspector();
+      $('efmodal').style.display = 'none';
+      toast(`hit effect: ${spec.label}`);
+    });
+    list.appendChild(opt);
+  }
+  $('efmodal').style.display = 'flex';
+}
+$('tg-effect').onclick = openEffectPicker;
+$('ef-close').onclick = () => ($('efmodal').style.display = 'none');
+$('ef-none').onclick = () => {
+  const s = selected();
+  if (!s) {
+    $('efmodal').style.display = 'none';
+    return;
+  }
+  snap();
+  // if the glyph alone implies an effect (e.g. 💣 → explode), store an explicit
+  // off-sentinel to suppress it; otherwise just drop the key.
+  const probe = JSON.parse(JSON.stringify(s)) as LevelObject;
+  delete probe.hit;
+  if (behaviorFor(probe)) s.hit = 'none';
+  else delete s.hit;
+  syncInspector();
+  $('efmodal').style.display = 'none';
+  toast('hit effect cleared');
 };
 $('undo').onclick = doUndo;
 $('redo').onclick = doRedo;

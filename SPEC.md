@@ -87,7 +87,7 @@ Object shapes:
 
 - `object.role` on target-material objects: `"destroy"` (default, villain) or `"protect"` (hostage variant: breaking it fails the level).
 
-- `object.hit`: optional per-emoji hit behavior key (e.g. `"explode"` for 💣). Registry of behaviors lives in code; schema stores only the key.
+- `object.hit`: optional per-emoji hit-effect key fired when the piece is destroyed in Test — one of `"pop"`, `"explode"`, `"shatter"`, `"splash"`, `"confetti"` (or `"none"` to suppress an effect the glyph would otherwise imply). Registry of effects lives in code; schema stores only the key.
 
 ## Materials
 

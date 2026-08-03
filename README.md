@@ -51,7 +51,7 @@ src/
   play/
     bodies.ts         one Matter body per object (shared by both runtimes)
     break-model.ts    the breakage math (unit-tested)
-    behaviors.ts      per-emoji hit behaviors (💣 explode)
+    behaviors.ts      per-emoji hit effects (pop/explode/shatter/splash/confetti)
     world.ts          slingshot Test: build, melt, movers, hero, explode, win/fail
     drive.ts          drive mode (Red Ball): a steerable hero + goal zone
   main.ts             DOM + canvas + gesture glue: forge, game shell, router
@@ -70,7 +70,9 @@ plays it (`#/play/<scene>/<file>` deep-links straight into play), with retry / n
 ## Modes
 
 - **Slingshot** (default): fling `meta.hero` at villains (target-material emoji);
-  clear them all. 💣/🧨 explode on break and chain-detonate neighbours.
+  clear them all. Emoji can carry a **hit effect** (`object.hit`) that fires when
+  destroyed — `pop`, `explode`, `shatter`, `splash`, `confetti`; 💣/🧨 default to
+  explode and chain-detonate neighbours. Set it via the ✨ chip on a selected emoji.
 - **Drop** (`meta.mode: "drop"`, tap-to-hop descent): the hero spawns at the start
   marker and falls; tap anywhere to hop, but only while grounded (real contact
   underfoot) or within a short coyote window. Villains are hazards — touching one

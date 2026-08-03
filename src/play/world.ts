@@ -15,7 +15,7 @@ import { MATERIALS, MaterialKey } from '../materials';
 import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
 import { impactOf, breaksAt } from './break-model';
 import { makeMatterBody } from './bodies';
-import { behaviorFor, EXPLOSION } from './behaviors';
+import { behaviorFor, EXPLOSION, EFFECTS, EffectSpec, HitBehavior, EFFECT_BREAK_AT } from './behaviors';
 import { fragmentPlacements } from './fracture';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
@@ -40,11 +40,38 @@ interface BodyPlugin {
   breakAt: number | null;
   isIce: boolean;
   melt: number;
-  /** Detonates nearby bodies when this one breaks (e.g. 💣). */
-  explode: boolean;
+  /** Hit effect fired when this piece is destroyed (pop/explode/…), or null. */
+  effect: HitBehavior | null;
+  /** The piece's material colour, used for material-tinted effects (shatter). */
+  color: string;
   /** Present for a solo blob, so it can shatter into fragments on break. */
   blob?: { pts: BlobPoint[]; brushR: number; material: MaterialKey };
 }
+
+/** A single particle thrown by a hit effect. */
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  grav: number;
+  color: string;
+  shape: 'dot' | 'shard' | 'strip';
+  angle: number;
+  spin: number;
+  life: number;
+  bornT: number;
+}
+
+/** A quick expanding ring drawn at a burst origin. */
+interface Flash {
+  x: number;
+  y: number;
+  color: string;
+  bornT: number;
+}
+const FLASH_MS = 260;
 
 interface Fragment {
   b: Matter.Body;
@@ -75,6 +102,8 @@ export class PlaySession {
   private destroyLeft = 0;
   private playT = 0;
   private fragments: Fragment[] = [];
+  private particles: Particle[] = [];
+  private flashes: Flash[] = [];
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private collisionHandler: CollisionHandler | null = null;
   /** A static-geometry mirror used to roll out the aim trajectory. */
@@ -133,13 +162,26 @@ export class PlaySession {
 
   private pluginFor(members: LevelObject[]): BodyPlugin {
     const numeric = members.map((o) => MATERIALS[o.material].breakAt).filter((v): v is number => v != null);
-    const breakAt = numeric.length ? Math.min(...numeric) : null;
+    let breakAt = numeric.length ? Math.min(...numeric) : null;
+    // First member carrying a hit effect owns the group's effect.
+    let effect: HitBehavior | null = null;
+    for (const o of members) {
+      const b = behaviorFor(o);
+      if (b) {
+        effect = b;
+        break;
+      }
+    }
+    // An effect-carrying piece whose material would never break still needs to
+    // break so its effect can fire on a solid hit (e.g. a metal 💥 emoji).
+    if (breakAt == null && effect) breakAt = EFFECT_BREAK_AT;
     const plugin: BodyPlugin = {
       lvlIds: members.map((o) => o.id),
       breakAt,
       isIce: members.length === 1 && members[0].material === 'ice',
       melt: 1,
-      explode: members.some((o) => behaviorFor(o) === 'explode'),
+      effect,
+      color: MATERIALS[members[0].material].color,
     };
     const solo = members.length === 1 ? members[0] : null;
     if (solo && solo.shape === 'blob' && solo.pts && solo.pts.length) {
@@ -200,7 +242,34 @@ export class PlaySession {
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
     if (p.blob) this.fractureBlob(p.blob, at, angle, vel);
-    if (p.explode) this.explodeAt(at.x, at.y);
+    if (p.effect) this.playEffect(EFFECTS[p.effect], at, p.color, vel);
+  }
+
+  /** Throw a burst of particles for a hit effect, and (for explode) shove and
+      chain-detonate neighbours. Purely cosmetic aside from the shove/detonate. */
+  private playEffect(spec: EffectSpec, at: { x: number; y: number }, matColor: string, vel: { x: number; y: number }): void {
+    if (spec.flash) this.flashes.push({ x: at.x, y: at.y, color: spec.colors[0] ?? matColor, bornT: this.playT });
+    const palette = spec.colors.length ? spec.colors : [matColor];
+    for (let i = 0; i < spec.count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const sp = spec.speed * (0.4 + Math.random() * 0.9);
+      this.particles.push({
+        x: at.x,
+        y: at.y,
+        // inherit a little of the piece's momentum so bursts feel connected
+        vx: Math.cos(ang) * sp + vel.x * 0.25,
+        vy: Math.sin(ang) * sp + vel.y * 0.25 - sp * 0.3,
+        r: spec.rMin + Math.random() * (spec.rMax - spec.rMin),
+        grav: spec.grav,
+        color: palette[(Math.random() * palette.length) | 0],
+        shape: spec.shape,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.5,
+        life: spec.life * (0.7 + Math.random() * 0.5),
+        bornT: this.playT,
+      });
+    }
+    if (spec.shove) this.explodeAt(at.x, at.y);
   }
 
   /** Shatter a broken blob into scattering fragment bodies. */
@@ -355,6 +424,66 @@ export class PlaySession {
       }
       this.fragments = alive;
     }
+    // advance hit-effect particles (their own light physics, not the engine's)
+    if (this.particles.length) {
+      const step = Math.min(dt, 33) / 16.67;
+      const alive: Particle[] = [];
+      for (const pt of this.particles) {
+        if (this.playT - pt.bornT > pt.life) continue;
+        pt.vy += this.engine.gravity.y * pt.grav * step;
+        pt.vx *= 0.985;
+        pt.x += pt.vx * step;
+        pt.y += pt.vy * step;
+        pt.angle += pt.spin * step;
+        alive.push(pt);
+      }
+      this.particles = alive;
+    }
+    if (this.flashes.length) this.flashes = this.flashes.filter((f) => this.playT - f.bornT <= FLASH_MS);
+  }
+
+  /** Draw the hit-effect flashes and particles (over the pieces). */
+  private renderEffects(ctx: CanvasRenderingContext2D): void {
+    for (const fl of this.flashes) {
+      const k = (this.playT - fl.bornT) / FLASH_MS;
+      if (k < 0 || k > 1) continue;
+      ctx.save();
+      ctx.globalAlpha = (1 - k) * 0.7;
+      ctx.strokeStyle = fl.color;
+      ctx.lineWidth = 3 + 4 * (1 - k);
+      ctx.beginPath();
+      ctx.arc(fl.x, fl.y, 6 + 70 * k, 0, 7);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const pt of this.particles) {
+      const age = this.playT - pt.bornT;
+      const fade = Math.max(0, 1 - age / pt.life);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, fade * 1.4);
+      ctx.fillStyle = pt.color;
+      if (pt.shape === 'dot') {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.translate(pt.x, pt.y);
+        ctx.rotate(pt.angle);
+        if (pt.shape === 'strip') {
+          ctx.fillRect(-pt.r, -pt.r * 0.45, pt.r * 2, pt.r * 0.9);
+        } else {
+          // shard: a small chunky triangle
+          ctx.beginPath();
+          ctx.moveTo(0, -pt.r);
+          ctx.lineTo(pt.r, pt.r);
+          ctx.lineTo(-pt.r, pt.r * 0.7);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -383,6 +512,9 @@ export class PlaySession {
       const melt = (this.ownerOf.get(o.id)!.plugin as BodyPlugin).melt;
       drawMaterialCtx(ctx, { ...o, x: part.position.x, y: part.position.y, angle: part.angle * DEG, note: '' }, false, melt);
     }
+
+    // hit-effect bursts, over the pieces
+    this.renderEffects(ctx);
 
     const ax = this.level.slingshot.x;
     const ay = this.level.slingshot.y - 26;
