@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fragmentPlacements, splinterPlacements } from '../src/play/fracture';
+import { fragmentPlacements, splinterPlacements, debrisKindFor } from '../src/play/fracture';
 import { BlobPoint } from '../src/schema';
 
 describe('fragmentPlacements', () => {
@@ -76,5 +76,19 @@ describe('splinterPlacements', () => {
   it('always yields at least one splinter for a tiny piece', () => {
     const out = splinterPlacements('circle', { r: 2 }, { x: 5, y: 6 }, 0, 14);
     expect(out.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('debrisKindFor', () => {
+  it('splinters wood and ice into shards, stone into rubble chunks', () => {
+    expect(debrisKindFor('wood')).toBe('shard');
+    expect(debrisKindFor('ice')).toBe('shard');
+    expect(debrisKindFor('stone')).toBe('chunk');
+  });
+
+  it('leaves no structural debris for metal, rubber, or target', () => {
+    expect(debrisKindFor('metal')).toBeNull();
+    expect(debrisKindFor('rubber')).toBeNull();
+    expect(debrisKindFor('target')).toBeNull();
   });
 });

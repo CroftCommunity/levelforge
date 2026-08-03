@@ -8,12 +8,33 @@
    ===================================================================== */
 
 import { BlobPoint } from '../schema';
+import { MaterialKey } from '../materials';
 import { triVerts, pointInTri } from '../editor/geometry';
 
 export interface FragmentPlacement {
   x: number;
   y: number;
   r: number;
+}
+
+/** How a material's break debris is drawn: tapered 'shard' or rounded 'chunk'. */
+export type DebrisKind = 'shard' | 'chunk';
+
+/**
+ * Which solid materials leave debris when a (non-blob) piece breaks, and its
+ * look. Wood/ice splinter into shards; stone crumbles into rubble chunks. Metal
+ * and rubber never break, and target villains carry their own hit effects, so
+ * none of them appear here.
+ */
+const DEBRIS_KIND: Partial<Record<MaterialKey, DebrisKind>> = {
+  wood: 'shard',
+  stone: 'chunk',
+  ice: 'shard',
+};
+
+/** Debris kind for a material, or null if it leaves none. */
+export function debrisKindFor(material: MaterialKey): DebrisKind | null {
+  return DEBRIS_KIND[material] ?? null;
 }
 
 export function fragmentPlacements(

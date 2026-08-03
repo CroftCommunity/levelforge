@@ -16,15 +16,18 @@ import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
 import { impactOf, breaksAt } from './break-model';
 import { makeMatterBody } from './bodies';
 import { behaviorFor, EXPLOSION, EFFECTS, EffectSpec, HitBehavior, EFFECT_BREAK_AT } from './behaviors';
-import { fragmentPlacements, splinterPlacements } from './fracture';
+import { fragmentPlacements, splinterPlacements, debrisKindFor, DebrisKind } from './fracture';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
 
 const FRAGMENT_LIFE_MS = 2200;
 const FRAGMENT_FADE_MS = 700;
 const MAX_FRAGMENTS = 24;
-/** Per-piece splinter cap so a welded wood wall doesn't birth hundreds of shards. */
+/** Per-piece splinter cap so a welded wall doesn't birth hundreds of shards. */
 const SPLINTER_MAX = 14;
+/** Debris share one non-colliding group: they hit the world and hero, but pass
+    through one another — so a break scatters cleanly instead of a jittering pile. */
+const DEBRIS_GROUP = Body.nextGroup(true);
 
 const SETTLE_MS = 500;
 const MELT_K = 0.9985;
@@ -80,8 +83,8 @@ interface Fragment {
   material: MaterialKey;
   r: number;
   bornT: number;
-  /** How to draw the debris: a rounded 'chunk' (blob shatter) or a tapered wood 'shard'. */
-  kind: 'chunk' | 'shard';
+  /** How to draw the debris: a tapered 'shard' (wood/ice) or a rounded 'chunk' (stone/blob). */
+  kind: DebrisKind;
 }
 
 interface Mover {
@@ -231,20 +234,24 @@ export class PlaySession {
     if (breaksAt(impact, p.breakAt)) this.breakBody(top);
   }
 
-  private breakBody(top: Matter.Body): void {
+  private breakBody(top: Matter.Body, opts?: { silent?: boolean }): void {
     const p = top.plugin as BodyPlugin;
     if (p.lvlIds.every((id) => this.broken.has(id))) return;
     const at = { x: top.position.x, y: top.position.y };
     const angle = top.angle;
     const vel = { x: top.velocity.x, y: top.velocity.y };
-    // Capture each solid wood member's own transform before removal so it can
-    // splinter in place (welded parts sit at their own offsets, not the centre).
+    // Capture each solid, debris-leaving member's own transform before removal so
+    // it can shatter in place (welded parts sit at their own offsets, not the
+    // centre). `silent` suppresses debris for a melt-out — ice should puddle away,
+    // not spray slivers.
     const idSet = new Set(p.lvlIds);
-    const woodPieces: Array<{ o: LevelObject; at: { x: number; y: number }; angle: number }> = [];
-    for (const o of this.level.objects) {
-      if (!idSet.has(o.id) || o.material !== 'wood' || o.shape === 'blob') continue;
-      const part = this.partOf.get(o.id);
-      if (part) woodPieces.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+    const shards: Array<{ o: LevelObject; at: { x: number; y: number }; angle: number }> = [];
+    if (!opts?.silent) {
+      for (const o of this.level.objects) {
+        if (!idSet.has(o.id) || o.shape === 'blob' || !debrisKindFor(o.material)) continue;
+        const part = this.partOf.get(o.id);
+        if (part) shards.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+      }
     }
     for (const id of p.lvlIds) this.broken.add(id);
     Composite.remove(this.engine.world, top);
@@ -254,7 +261,8 @@ export class PlaySession {
       else this.destroyLeft--;
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
-    for (const wp of woodPieces) this.splinter(wp.o, wp.at, wp.angle, vel);
+    // Ice shrinks as it melts; size its debris to the piece's current scale.
+    for (const s of shards) this.shatterSolid(s.o, s.at, s.angle, vel, p.melt);
     if (p.blob) this.fractureBlob(p.blob, at, angle, vel);
     if (p.effect) this.playEffect(EFFECTS[p.effect], at, p.color, vel);
   }
@@ -290,7 +298,12 @@ export class PlaySession {
   private fractureBlob(blob: { pts: BlobPoint[]; brushR: number; material: MaterialKey }, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }): void {
     const m = MATERIALS[blob.material];
     for (const f of fragmentPlacements(blob.pts, blob.brushR, at, angle, MAX_FRAGMENTS)) {
-      const b = Bodies.circle(f.x, f.y, f.r, { density: m.density, friction: m.friction, restitution: Math.min(0.5, m.restitution + 0.15) });
+      const b = Bodies.circle(f.x, f.y, f.r, {
+        density: m.density,
+        friction: m.friction,
+        restitution: Math.min(0.5, m.restitution + 0.15),
+        collisionFilter: { group: DEBRIS_GROUP },
+      });
       // scatter outward from the centre, plus the parent's momentum and jitter
       const dx = f.x - at.x;
       const dy = f.y - at.y;
@@ -306,16 +319,25 @@ export class PlaySession {
     }
   }
 
-  /** Splinter a broken solid wood piece into scattering, tumbling wood shards. */
-  private splinter(o: LevelObject, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }): void {
+  /** Shatter a broken solid piece (wood/stone/ice) into scattering, tumbling
+      debris — shards for wood/ice, rubble chunks for stone. `scale` shrinks the
+      footprint to a melted piece's current size. */
+  private shatterSolid(o: LevelObject, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }, scale = 1): void {
+    const kind = debrisKindFor(o.material);
+    if (!kind) return;
     const m = MATERIALS[o.material];
     const shape = o.shape as 'box' | 'circle' | 'tri';
-    const dims = { w: o.w, h: o.h, r: o.r };
+    const dims = {
+      w: o.w != null ? o.w * scale : undefined,
+      h: o.h != null ? o.h * scale : undefined,
+      r: o.r != null ? o.r * scale : undefined,
+    };
     for (const f of splinterPlacements(shape, dims, at, angle, SPLINTER_MAX)) {
       const b = Bodies.circle(f.x, f.y, f.r, {
         density: m.density,
         friction: m.friction,
         restitution: Math.min(0.4, m.restitution + 0.1),
+        collisionFilter: { group: DEBRIS_GROUP },
       });
       // scatter outward from the piece centre, keeping some of its momentum
       const dx = f.x - at.x;
@@ -328,7 +350,7 @@ export class PlaySession {
       });
       Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.6);
       Composite.add(this.engine.world, b);
-      this.fragments.push({ b, material: o.material, r: f.r, bornT: this.playT, kind: 'shard' });
+      this.fragments.push({ b, material: o.material, r: f.r, bornT: this.playT, kind });
     }
   }
 
@@ -452,7 +474,7 @@ export class PlaySession {
       if (!p.isIce || this.broken.has(p.lvlIds[0])) continue;
       Body.scale(b, MELT_K, MELT_K);
       p.melt *= MELT_K;
-      if (p.melt < MELT_MIN) this.breakBody(b);
+      if (p.melt < MELT_MIN) this.breakBody(b, { silent: true });
     }
     Engine.update(this.engine, Math.min(dt, 33));
     // retire spent fragments
