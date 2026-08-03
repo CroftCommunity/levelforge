@@ -16,13 +16,15 @@ import { drawMaterialCtx, drawSlingshotCtx, DEG } from '../editor/render';
 import { impactOf, breaksAt } from './break-model';
 import { makeMatterBody } from './bodies';
 import { behaviorFor, EXPLOSION, EFFECTS, EffectSpec, HitBehavior, EFFECT_BREAK_AT } from './behaviors';
-import { fragmentPlacements } from './fracture';
+import { fragmentPlacements, splinterPlacements } from './fracture';
 
 const { Engine, Bodies, Body, Composite, Events, Sleeping } = Matter;
 
 const FRAGMENT_LIFE_MS = 2200;
 const FRAGMENT_FADE_MS = 700;
 const MAX_FRAGMENTS = 24;
+/** Per-piece splinter cap so a welded wood wall doesn't birth hundreds of shards. */
+const SPLINTER_MAX = 14;
 
 const SETTLE_MS = 500;
 const MELT_K = 0.9985;
@@ -78,6 +80,8 @@ interface Fragment {
   material: MaterialKey;
   r: number;
   bornT: number;
+  /** How to draw the debris: a rounded 'chunk' (blob shatter) or a tapered wood 'shard'. */
+  kind: 'chunk' | 'shard';
 }
 
 interface Mover {
@@ -233,6 +237,15 @@ export class PlaySession {
     const at = { x: top.position.x, y: top.position.y };
     const angle = top.angle;
     const vel = { x: top.velocity.x, y: top.velocity.y };
+    // Capture each solid wood member's own transform before removal so it can
+    // splinter in place (welded parts sit at their own offsets, not the centre).
+    const idSet = new Set(p.lvlIds);
+    const woodPieces: Array<{ o: LevelObject; at: { x: number; y: number }; angle: number }> = [];
+    for (const o of this.level.objects) {
+      if (!idSet.has(o.id) || o.material !== 'wood' || o.shape === 'blob') continue;
+      const part = this.partOf.get(o.id);
+      if (part) woodPieces.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+    }
     for (const id of p.lvlIds) this.broken.add(id);
     Composite.remove(this.engine.world, top);
     for (const o of this.level.objects) {
@@ -241,6 +254,7 @@ export class PlaySession {
       else this.destroyLeft--;
     }
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
+    for (const wp of woodPieces) this.splinter(wp.o, wp.at, wp.angle, vel);
     if (p.blob) this.fractureBlob(p.blob, at, angle, vel);
     if (p.effect) this.playEffect(EFFECTS[p.effect], at, p.color, vel);
   }
@@ -288,7 +302,33 @@ export class PlaySession {
       });
       Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4);
       Composite.add(this.engine.world, b);
-      this.fragments.push({ b, material: blob.material, r: f.r, bornT: this.playT });
+      this.fragments.push({ b, material: blob.material, r: f.r, bornT: this.playT, kind: 'chunk' });
+    }
+  }
+
+  /** Splinter a broken solid wood piece into scattering, tumbling wood shards. */
+  private splinter(o: LevelObject, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }): void {
+    const m = MATERIALS[o.material];
+    const shape = o.shape as 'box' | 'circle' | 'tri';
+    const dims = { w: o.w, h: o.h, r: o.r };
+    for (const f of splinterPlacements(shape, dims, at, angle, SPLINTER_MAX)) {
+      const b = Bodies.circle(f.x, f.y, f.r, {
+        density: m.density,
+        friction: m.friction,
+        restitution: Math.min(0.4, m.restitution + 0.1),
+      });
+      // scatter outward from the piece centre, keeping some of its momentum
+      const dx = f.x - at.x;
+      const dy = f.y - at.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const spread = 2 + Math.random() * 2.5;
+      Body.setVelocity(b, {
+        x: vel.x * 0.6 + (dx / d) * spread + (Math.random() - 0.5) * 2.5,
+        y: vel.y * 0.6 + (dy / d) * spread - Math.random() * 2.5,
+      });
+      Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.6);
+      Composite.add(this.engine.world, b);
+      this.fragments.push({ b, material: o.material, r: f.r, bornT: this.playT, kind: 'shard' });
     }
   }
 
@@ -498,10 +538,32 @@ export class PlaySession {
       ctx.fillStyle = MATERIALS[f.material].color;
       ctx.strokeStyle = 'rgba(0,0,0,.3)';
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(f.b.position.x, f.b.position.y, f.r, 0, 7);
-      ctx.fill();
-      ctx.stroke();
+      if (f.kind === 'shard') {
+        // a tapered, tumbling wood splinter with a hint of grain
+        ctx.translate(f.b.position.x, f.b.position.y);
+        ctx.rotate(f.b.angle);
+        const len = f.r * 2.2;
+        const th = f.r * 0.85;
+        ctx.beginPath();
+        ctx.moveTo(-len / 2, -th / 2);
+        ctx.lineTo(len / 2, -th * 0.15);
+        ctx.lineTo(len / 2, th * 0.15);
+        ctx.lineTo(-len / 2, th / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-len / 2, 0);
+        ctx.lineTo(len / 2, 0);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(f.b.position.x, f.b.position.y, f.r, 0, 7);
+        ctx.fill();
+        ctx.stroke();
+      }
       ctx.restore();
     }
 

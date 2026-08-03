@@ -8,6 +8,7 @@
    ===================================================================== */
 
 import { BlobPoint } from '../schema';
+import { triVerts, pointInTri } from '../editor/geometry';
 
 export interface FragmentPlacement {
   x: number;
@@ -32,5 +33,78 @@ export function fragmentPlacements(
     const [px, py] = pts[i];
     out.push({ x: at.x + (px * cos - py * sin), y: at.y + (px * sin + py * cos), r });
   }
+  return out;
+}
+
+/** Roughly the world size of one splinter chunk before area-based capping. */
+const SPLINTER_CELL = 18;
+
+/**
+ * Sample chunky splinter spawn points across a solid shape's footprint, applied
+ * at the body's world transform (mirrors `fragmentPlacements`, but for the solid
+ * box/circle/tri shapes that carry no blob points). A grid is laid over the
+ * shape's local bounding box, decimated to at most `max` cells, and clipped to
+ * the actual shape (disk for circles, the triangle for tris). Pure geometry —
+ * world.ts turns each placement into a physics body with scatter velocity.
+ */
+export function splinterPlacements(
+  shape: 'box' | 'circle' | 'tri',
+  dims: { w?: number; h?: number; r?: number },
+  at: { x: number; y: number },
+  angle: number,
+  max: number,
+): FragmentPlacement[] {
+  const out: FragmentPlacement[] = [];
+  const rad = dims.r ?? 0;
+  const w = dims.w ?? 0;
+  const h = dims.h ?? 0;
+  // Local bounding box (triVerts centres the triangle's centroid at the origin,
+  // so its box is asymmetric in y).
+  let minX: number, maxX: number, minY: number, maxY: number;
+  if (shape === 'circle') {
+    minX = -rad;
+    maxX = rad;
+    minY = -rad;
+    maxY = rad;
+  } else if (shape === 'tri') {
+    minX = -w / 2;
+    maxX = w / 2;
+    minY = (-2 * h) / 3;
+    maxY = h / 3;
+  } else {
+    minX = -w / 2;
+    maxX = w / 2;
+    minY = -h / 2;
+    maxY = h / 2;
+  }
+  const bw = maxX - minX;
+  const bh = maxY - minY;
+  if (bw <= 0 || bh <= 0) return out;
+
+  let cols = Math.max(1, Math.round(bw / SPLINTER_CELL));
+  let rows = Math.max(1, Math.round(bh / SPLINTER_CELL));
+  while (cols * rows > max) {
+    if (cols >= rows && cols > 1) cols--;
+    else if (rows > 1) rows--;
+    else break;
+  }
+  const cw = bw / cols;
+  const ch = bh / rows;
+  const r = Math.max(4, Math.min(cw, ch) * 0.5);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const tv = shape === 'tri' ? triVerts({ w, h }) : null;
+
+  for (let iy = 0; iy < rows; iy++) {
+    for (let ix = 0; ix < cols; ix++) {
+      const lx = minX + cw * (ix + 0.5);
+      const ly = minY + ch * (iy + 0.5);
+      if (shape === 'circle' && Math.hypot(lx, ly) > rad) continue;
+      if (tv && !pointInTri(lx, ly, tv)) continue;
+      out.push({ x: at.x + (lx * cos - ly * sin), y: at.y + (lx * sin + ly * cos), r });
+    }
+  }
+  // A tiny or heavily-clipped shape can miss every cell centre — still splinter once.
+  if (!out.length) out.push({ x: at.x, y: at.y, r: Math.max(4, Math.min(bw, bh) * 0.4) });
   return out;
 }
