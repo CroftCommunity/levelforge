@@ -95,7 +95,9 @@ export interface LevelObject {
   role?: Role;
   /** v0.8-forward: custom emoji sprite filename. */
   sprite?: string;
-  /** v0.8-forward: per-emoji hit behavior key. */
+  /** v0.8-forward: per-emoji hit-effect key fired when the piece is destroyed
+      in Test (pop/explode/shatter/splash/confetti). Unknown keys = no effect;
+      "none" explicitly suppresses an effect the glyph would otherwise imply. */
   hit?: string;
 }
 

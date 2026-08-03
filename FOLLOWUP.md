@@ -56,8 +56,9 @@ already in place — the seams are set up for it.
 
 Shipped: searchable emoji picker (`editor/emoji-data.ts`), custom emoji sprites
 (`object.sprite`), weld groups (`object.group` + 🔗 editor chip), protect-role
-targets, blob fracture (`play/fracture.ts`), per-emoji hit behaviors
-(`play/behaviors.ts`, 💣 explode), headless-sim trajectory preview
+targets, blob fracture (`play/fracture.ts`), per-emoji hit effects
+(`play/behaviors.ts`: pop/explode/shatter/splash/confetti, set via the ✨ chip;
+particle bursts rendered in `play/world.ts`), headless-sim trajectory preview
 (`play/world.ts` `buildPreview`/`predict`), committed file assets
 (`meta.backgroundSrc` / `object.sprite` resolved by `levels-manifest.ts`).
 
@@ -129,7 +130,7 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 | Committed levels + asset resolution | `src/levels-manifest.ts` |
 | Matter body per object (shared) | `src/play/bodies.ts` |
 | Break model | `src/play/break-model.ts` |
-| Hit behaviors (explode) | `src/play/behaviors.ts` |
+| Hit effects (pop/explode/shatter/splash/confetti) | `src/play/behaviors.ts` |
 | Blob fracture placement math | `src/play/fracture.ts` |
 | Slingshot Test runtime | `src/play/world.ts` |
 | Drop runtime (tap-to-hop) | `src/play/drop.ts` |
