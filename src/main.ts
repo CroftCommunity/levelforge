@@ -227,6 +227,20 @@ function resetView(): void {
   clampView();
 }
 window.addEventListener('resize', () => setTimeout(resize, 80));
+// Recompute the canvas the instant its box changes (orientation, layout, rail
+// reflow) rather than waiting on the debounced window-resize — keeps the world
+// mapping in sync so a drag never lands on stale coordinates.
+if ('ResizeObserver' in window) {
+  let lw = 0;
+  let lh = 0;
+  new ResizeObserver((entries) => {
+    const cr = entries[0].contentRect;
+    if (Math.abs(cr.width - lw) < 0.5 && Math.abs(cr.height - lh) < 0.5) return;
+    lw = cr.width;
+    lh = cr.height;
+    resize();
+  }).observe(cv.parentElement!);
+}
 
 const s2w = (sx: number, sy: number): { x: number; y: number } => {
   const r = cv.getBoundingClientRect();
@@ -415,7 +429,7 @@ const selected = (): LevelObject | null => level.objects.find((o) => o.id === se
 
 type Gesture =
   | { kind: 'vzoom'; d0: number; m0: { sx: number; sy: number }; z0: number; ox0: number; oy0: number }
-  | { kind: 'vpan'; last: { sx: number; sy: number } }
+  | { kind: 'vpan'; last: { sx: number; sy: number }; start: { sx: number; sy: number }; downT: number; moved: boolean }
   | { kind: 'pinch'; d0: number; a0: number; o: LevelObject }
   | { kind: 'rotate'; cx: number; cy: number; a0: number; pa0: number }
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
@@ -587,7 +601,7 @@ cv.addEventListener('pointerdown', (e) => {
         resetView();
         lastTapT = 0;
       } else lastTapT = now;
-      gesture = { kind: 'vpan', last: sp };
+      gesture = { kind: 'vpan', last: sp, start: sp, downT: now, moved: false };
     }
     return;
   }
@@ -675,6 +689,7 @@ cv.addEventListener('pointermove', (e) => {
   } else if (gesture.kind === 'vpan') {
     view.ox += sp.sx - prevS.sx;
     view.oy += sp.sy - prevS.sy;
+    if (Math.hypot(sp.sx - gesture.start.sx, sp.sy - gesture.start.sy) > 8) gesture.moved = true;
     clampView();
   } else if (gesture.kind === 'vzoom' && spointers.size >= 2) {
     const [a, b] = [...spointers.values()];
@@ -775,6 +790,18 @@ function endPointer(e: PointerEvent): void {
     if (gesture.kind === 'goal' && level.meta.goal) {
       level.meta.goal.x = snapN(level.meta.goal.x);
       level.meta.goal.y = snapN(level.meta.goal.y);
+    }
+    // A stationary quick tap while in 🔍 view mode grabs the piece under the
+    // finger and drops into ✋ adjust, so "zoom in, then tap to select" works
+    // without hunting for the mode toggle. Dragging still pans.
+    if (gesture.kind === 'vpan' && !gesture.moved && performance.now() - gesture.downT < 300) {
+      const hit = hitObject(s2w(e.clientX, e.clientY));
+      if (hit) {
+        selId = hit.id;
+        handMode = 'adjust';
+        adjEl.classList.toggle('on', !armed && handMode === 'adjust');
+        syncViewBtn();
+      }
     }
     scheduleAutosave();
   }
