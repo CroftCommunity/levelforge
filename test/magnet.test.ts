@@ -5,6 +5,7 @@ import {
   snapN,
   triVerts,
   pointInTri,
+  clampToWorld,
   GeomObject,
 } from '../src/editor/geometry';
 
@@ -25,6 +26,22 @@ describe('snapN', () => {
     expect(snapN(14)).toBe(10);
     expect(snapN(15)).toBe(20);
     expect(snapN(-6)).toBe(-10);
+  });
+});
+
+describe('clampToWorld', () => {
+  it('leaves points inside the world untouched', () => {
+    expect(clampToWorld(800, 450, 1600, 900)).toEqual({ x: 800, y: 450 });
+  });
+  it('pulls points past the right/bottom edges back to the border', () => {
+    expect(clampToWorld(2000, 1200, 1600, 900)).toEqual({ x: 1600, y: 900 });
+  });
+  it('pulls negative coordinates back to the origin', () => {
+    expect(clampToWorld(-50, -30, 1600, 900)).toEqual({ x: 0, y: 0 });
+  });
+  it('clamps each axis independently', () => {
+    expect(clampToWorld(-10, 400, 1600, 900)).toEqual({ x: 0, y: 400 });
+    expect(clampToWorld(400, 5000, 1600, 900)).toEqual({ x: 400, y: 900 });
   });
 });
 

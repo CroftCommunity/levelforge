@@ -25,7 +25,7 @@ import {
   BRUSH_DEFAULT,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
-import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, GeomObject } from './editor/geometry';
+import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, clampToWorld, GeomObject } from './editor/geometry';
 import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
 import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
@@ -448,7 +448,8 @@ function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
 function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number }): void {
   snap();
   const pr = armed!;
-  const o: LevelObject = { id: nid(), shape: pr.shape, x: p.x, y: p.y, angle: 0, material: curMat, anchored: false, path: null, note: '' };
+  const c = clampToWorld(p.x, p.y, level.world.w, level.world.h);
+  const o: LevelObject = { id: nid(), shape: pr.shape, x: c.x, y: c.y, angle: 0, material: curMat, anchored: false, path: null, note: '' };
   if (pr.shape === 'box') {
     o.w = pr.rotatable && armedRot ? pr.h : pr.w;
     o.h = pr.rotatable && armedRot ? pr.w : pr.h;
@@ -633,18 +634,22 @@ cv.addEventListener('pointermove', (e) => {
         gesture.lifted = true;
       } else if (ds > 10) gesture.lifted = true;
     }
-    sel.x = p.x + gesture.dx;
-    sel.y = p.y + gesture.dy;
+    const c = clampToWorld(p.x + gesture.dx, p.y + gesture.dy, level.world.w, level.world.h);
+    sel.x = c.x;
+    sel.y = c.y;
     applyMagnet(sel);
   } else if (gesture.kind === 'path' && sel && sel.path) {
-    sel.path.x = p.x;
-    sel.path.y = p.y;
+    const c = clampToWorld(p.x, p.y, level.world.w, level.world.h);
+    sel.path.x = c.x;
+    sel.path.y = c.y;
   } else if (gesture.kind === 'sling') {
-    level.slingshot.x = p.x;
-    level.slingshot.y = Math.min(p.y, level.world.floorY - 60);
+    const c = clampToWorld(p.x, Math.min(p.y, level.world.floorY - 60), level.world.w, level.world.h);
+    level.slingshot.x = c.x;
+    level.slingshot.y = c.y;
   } else if (gesture.kind === 'goal' && level.meta.goal) {
-    level.meta.goal.x = p.x;
-    level.meta.goal.y = p.y;
+    const c = clampToWorld(p.x, p.y, level.world.w, level.world.h);
+    level.meta.goal.x = c.x;
+    level.meta.goal.y = c.y;
   }
 });
 
@@ -707,8 +712,9 @@ document.querySelectorAll<HTMLButtonElement>('#nudge button[data-n]').forEach((b
     const now = performance.now();
     if (!(nudgeLast.id === s.id && now - nudgeLast.t < 1500)) snap();
     nudgeLast = { id: s.id, t: now };
-    s.x += dx * SNAP;
-    s.y += dy * SNAP;
+    const c = clampToWorld(s.x + dx * SNAP, s.y + dy * SNAP, level.world.w, level.world.h);
+    s.x = c.x;
+    s.y = c.y;
     syncReadout();
     scheduleAutosave();
   });
@@ -1609,7 +1615,16 @@ function drawPlay(dt: number): void {
   if (!session) return;
   session.update(dt);
   drawWorldBase(false);
+  // Clip play rendering to the world rectangle so a hero or debris that flies
+  // off the board (e.g. up over the top, like Angry Birds) is hidden while it's
+  // out of bounds and reappears when it falls back in — never drawn over the
+  // surrounding UI or letterbox. The clip is popped by the ctx.restore() below.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, level.world.w, level.world.h);
+  ctx.clip();
   session.render(ctx);
+  ctx.restore();
   if (playKind === 'slingshot' && session instanceof PlaySession) {
     ctx.fillStyle = 'rgba(20,28,40,.65)';
     ctx.fillRect(10, 12, 170, 30);

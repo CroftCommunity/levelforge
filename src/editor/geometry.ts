@@ -80,6 +80,17 @@ export function extents(o: GeomObject): Extents | null {
 
 export const snapN = (v: number): number => Math.round(v / SNAP) * SNAP;
 
+/**
+ * Clamp a point to the world rectangle [0,w] × [0,h]. Used to keep a dragged
+ * handle's centre on the board so a piece (or the launcher) can never be
+ * dropped off-canvas and lost. The centre — not the full extent — is clamped
+ * on purpose, so pieces can still sit flush to an edge (a boundary wall) while
+ * their grab point stays reachable.
+ */
+export function clampToWorld(x: number, y: number, w: number, h: number): { x: number; y: number } {
+  return { x: Math.max(0, Math.min(w, x)), y: Math.max(0, Math.min(h, y)) };
+}
+
 export interface MagnetResult {
   x: number;
   y: number;
