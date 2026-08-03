@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fragmentPlacements } from '../src/play/fracture';
+import { fragmentPlacements, splinterPlacements, debrisKindFor } from '../src/play/fracture';
 import { BlobPoint } from '../src/schema';
 
 describe('fragmentPlacements', () => {
@@ -34,5 +34,61 @@ describe('fragmentPlacements', () => {
 
   it('returns nothing for an empty blob', () => {
     expect(fragmentPlacements([], 20, { x: 0, y: 0 }, 0, 24)).toEqual([]);
+  });
+});
+
+describe('splinterPlacements', () => {
+  it('spreads splinters across a box footprint at its world position', () => {
+    const out = splinterPlacements('box', { w: 80, h: 40 }, { x: 200, y: 300 }, 0, 14);
+    expect(out.length).toBeGreaterThan(1);
+    // every splinter lands within the box's world bounds (+ its own radius)
+    for (const f of out) {
+      expect(f.x).toBeGreaterThanOrEqual(200 - 40 - f.r);
+      expect(f.x).toBeLessThanOrEqual(200 + 40 + f.r);
+      expect(f.y).toBeGreaterThanOrEqual(300 - 20 - f.r);
+      expect(f.y).toBeLessThanOrEqual(300 + 20 + f.r);
+      expect(f.r).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('never exceeds the fragment cap', () => {
+    const out = splinterPlacements('box', { w: 400, h: 400 }, { x: 0, y: 0 }, 0, 14);
+    expect(out.length).toBeLessThanOrEqual(14);
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  it('clips circle splinters to the disk', () => {
+    const out = splinterPlacements('circle', { r: 50 }, { x: 0, y: 0 }, 0, 24);
+    expect(out.length).toBeGreaterThan(0);
+    for (const f of out) expect(Math.hypot(f.x, f.y)).toBeLessThanOrEqual(50);
+  });
+
+  it('rotates the footprint by the body angle', () => {
+    // a wide, flat box rotated 90° becomes tall — a splinter far on +x maps to +y
+    const flat = splinterPlacements('box', { w: 120, h: 8 }, { x: 0, y: 0 }, 0, 14);
+    const spun = splinterPlacements('box', { w: 120, h: 8 }, { x: 0, y: 0 }, Math.PI / 2, 14);
+    const flatSpanX = Math.max(...flat.map((f) => Math.abs(f.x)));
+    const spunSpanY = Math.max(...spun.map((f) => Math.abs(f.y)));
+    expect(flatSpanX).toBeGreaterThan(20);
+    expect(spunSpanY).toBeGreaterThan(20);
+  });
+
+  it('always yields at least one splinter for a tiny piece', () => {
+    const out = splinterPlacements('circle', { r: 2 }, { x: 5, y: 6 }, 0, 14);
+    expect(out.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('debrisKindFor', () => {
+  it('splinters wood and ice into shards, stone into rubble chunks', () => {
+    expect(debrisKindFor('wood')).toBe('shard');
+    expect(debrisKindFor('ice')).toBe('shard');
+    expect(debrisKindFor('stone')).toBe('chunk');
+  });
+
+  it('leaves no structural debris for metal, rubber, or target', () => {
+    expect(debrisKindFor('metal')).toBeNull();
+    expect(debrisKindFor('rubber')).toBeNull();
+    expect(debrisKindFor('target')).toBeNull();
   });
 });
