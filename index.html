@@ -393,6 +393,35 @@
       #selactions {
         gap: 8px;
       }
+      /* Portrait: the per-piece controls float as a side panel over the canvas
+         instead of a bottom bar. A bottom bar grew the inspector on selection,
+         which shrank the stage and jumped the canvas out from under the finger.
+         Landscape already keeps these in the side rail, so it is left alone. */
+      body:not(.land) #selwrap {
+        position: fixed;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 150px;
+        max-height: calc(100dvh - 140px);
+        overflow-y: auto;
+        padding: 9px;
+        background: rgba(22, 33, 47, 0.94);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+        z-index: 7;
+        scrollbar-width: none;
+      }
+      body:not(.land) #selwrap::-webkit-scrollbar {
+        display: none;
+      }
+      body:not(.land) #selwrap > .row {
+        margin-bottom: 9px;
+      }
+      body:not(.land) #selwrap > .row:last-of-type {
+        margin-bottom: 0;
+      }
       #eflist {
         display: flex;
         flex-direction: column;
