@@ -13,13 +13,18 @@ import Matter from 'matter-js';
 import { Level, LevelObject } from '../schema';
 import { drawMaterialCtx, DEG } from '../editor/render';
 import { makeMatterBody } from './bodies';
+import { GroundTracker } from './grounded';
+import { MATERIALS } from '../materials';
 
-const { Engine, Bodies, Body, Composite, Sleeping } = Matter;
+const { Engine, Bodies, Body, Composite, Sleeping, Events } = Matter;
 
 const HERO_R = 24;
 const MOVE_VX = 7.5; // horizontal speed (world units / step)
 const JUMP_VY = 12; // jump impulse
-const GROUND_EPS = 2.6; // |vy| under which we consider the hero grounded
+// The hero IS a rubber ball (the "Red Ball"): take its bounce/grip straight from
+// the rubber material so it matches how it's drawn, instead of a dead hand-tuned
+// body. Bounce means |vy| never settles, so grounding uses real contacts below.
+const RUBBER = MATERIALS.rubber;
 
 export type DriveStatus = 'playing' | 'won' | 'failed';
 
@@ -37,6 +42,8 @@ export class DriveSession {
   private movers: Mover[] = [];
   private hazards: Matter.Body[] = [];
   private hero: Matter.Body;
+  private ground = new GroundTracker();
+  private onCollide: ((ev: Matter.IEventCollision<Matter.Engine>) => void) | null = null;
   private dir = 0;
   private wantJump = false;
   private playT = 0;
@@ -64,12 +71,18 @@ export class DriveSession {
     }
 
     this.hero = Bodies.circle(level.slingshot.x, floorY - 120, HERO_R, {
-      density: 0.0016,
-      friction: 0.02,
+      density: RUBBER.density,
+      friction: RUBBER.friction,
       frictionStatic: 0.05,
-      restitution: 0.02,
+      restitution: RUBBER.restitution,
     });
     Composite.add(this.engine.world, this.hero);
+
+    // Ground the jump on real contacts (a support point underfoot), not on a
+    // velocity threshold — a bouncing ball never stays under one.
+    this.onCollide = (ev) => this.ground.observe(this.hero, ev.pairs, HERO_R, this.playT);
+    Events.on(this.engine, 'collisionStart', this.onCollide);
+    Events.on(this.engine, 'collisionActive', this.onCollide);
   }
 
   setMove(dir: number): void {
@@ -77,10 +90,6 @@ export class DriveSession {
   }
   jump(): void {
     this.wantJump = true;
-  }
-
-  private grounded(): boolean {
-    return Math.abs(this.hero.velocity.y) < GROUND_EPS;
   }
 
   update(dt: number): void {
@@ -102,8 +111,9 @@ export class DriveSession {
       // Responsive horizontal control; preserve vertical from physics.
       if (this.dir !== 0) Body.setVelocity(this.hero, { x: this.dir * MOVE_VX, y: this.hero.velocity.y });
       else Body.setVelocity(this.hero, { x: this.hero.velocity.x * 0.8, y: this.hero.velocity.y });
-      if (this.wantJump && this.grounded()) {
+      if (this.wantJump && this.ground.canJump(this.playT)) {
         Body.setVelocity(this.hero, { x: this.hero.velocity.x, y: -JUMP_VY });
+        this.ground.reset(); // one contact, one jump — no mid-air/mid-bounce double jump
         Sleeping.set(this.hero, false);
       }
     }
@@ -156,6 +166,10 @@ export class DriveSession {
   }
 
   destroy(): void {
+    if (this.onCollide) {
+      Events.off(this.engine, 'collisionStart', this.onCollide);
+      Events.off(this.engine, 'collisionActive', this.onCollide);
+    }
     Composite.clear(this.engine.world, false, true);
     Engine.clear(this.engine);
   }
