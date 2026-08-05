@@ -70,11 +70,14 @@ export class DriveSession {
       if (o.material === 'target') this.hazards.push(b);
     }
 
+    // Bounciness is author-tunable per level (settings slider → meta.bounce);
+    // fall back to the rubber material's own restitution when unset.
+    const bounce = level.meta.bounce ?? RUBBER.restitution;
     this.hero = Bodies.circle(level.slingshot.x, floorY - 120, HERO_R, {
       density: RUBBER.density,
       friction: RUBBER.friction,
       frictionStatic: 0.05,
-      restitution: RUBBER.restitution,
+      restitution: bounce,
     });
     Composite.add(this.engine.world, this.hero);
 

@@ -116,6 +116,9 @@ export interface LevelMeta {
   mode: ModeKind;
   /** v0.8: drive-mode goal zone, or null. */
   goal: GoalDef | null;
+  /** Drive-mode hero bounciness (restitution, 0–1). Undefined uses the rubber
+      default. Only meaningful in drive mode. */
+  bounce?: number;
 }
 
 export interface WorldDef {
@@ -409,6 +412,7 @@ export function validateLevel(input: unknown): Level {
     goal,
   };
   if (typeof meta.backgroundSrc === 'string' && meta.backgroundSrc) cleanMeta.backgroundSrc = meta.backgroundSrc;
+  if (isFiniteNum(meta.bounce)) cleanMeta.bounce = Math.max(0, Math.min(1, meta.bounce));
 
   const world = l.world ?? {};
   req(typeof world === 'object', 'world must be an object.');
