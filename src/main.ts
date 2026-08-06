@@ -207,6 +207,9 @@ function doRedo(): void {
 function afterHistory(): void {
   selId = null;
   gesture = null;
+  // the level was replaced wholesale — drop the exemption without settling so
+  // the restored state stays exactly as recorded
+  passthroughId = null;
   idSeq = Math.max(idSeq, maxIdNum(level) + 1);
   syncInspector();
   syncHistoryBtns();
@@ -375,7 +378,11 @@ function drawEdit(): void {
       ctx.textBaseline = 'middle';
       ctx.fillText('↔', o.path.x, o.path.y);
     }
+    // the passthrough piece renders as a ghost so "not yet solid" is visible
+    const ghost = o.id === passthroughId;
+    if (ghost) ctx.globalAlpha = 0.55;
     drawMaterialCtx(ctx, o, false);
+    if (ghost) ctx.globalAlpha = 1;
   }
   // live paint preview
   if (gesture && gesture.kind === 'paint' && gesture.pts.length) {
@@ -558,12 +565,33 @@ function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
 
 /** When solid pieces are on, push `sel` out of any overlapping neighbour so a
  *  structure built in the frozen edit view holds together once physics runs.
- *  Called after a piece is placed, moved, rotated, or nudged into position. */
+ *  Called after a piece is placed, moved, rotated, or nudged into position.
+ *  The passthrough piece is non-solid both ways: it neither settles nor is
+ *  settled against, so a ghost sitting inside a structure displaces nothing. */
 function settleSolid(sel: LevelObject): void {
   if (!settings.solid) return;
-  const res = separate(sel as GeomObject, level.objects as GeomObject[], { worldW: level.world.w, worldH: level.world.h });
+  if (sel.id === passthroughId) return;
+  const others = passthroughId ? level.objects.filter((o) => o.id !== passthroughId) : level.objects;
+  const res = separate(sel as GeomObject, others as GeomObject[], { worldW: level.world.w, worldH: level.world.h });
   sel.x = res.x;
   sel.y = res.y;
+}
+
+/* ------------------------ passthrough (ghost) -------------------------- */
+/** The one piece temporarily exempt from solid settling. A freshly stamped
+ *  piece or ⧉ copy starts here — it may sit inside neighbours while you drag
+ *  it into place — and the 👻 chip re-enters the mode for any selected piece.
+ *  The moment the piece loses focus it settles solid like everything else. */
+let passthroughId: string | null = null;
+/** End passthrough: settle the ghost out of any overlap and drop the exemption. */
+function settlePassthrough(): void {
+  if (!passthroughId) return;
+  const o = level.objects.find((x) => x.id === passthroughId);
+  passthroughId = null;
+  if (o) {
+    settleSolid(o);
+    scheduleAutosave();
+  }
 }
 
 function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number }): void {
@@ -584,9 +612,12 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   const m = applyMagnet(o);
   if (!m.sx) o.x = snapN(o.x);
   if (!m.sy) o.y = snapN(o.y);
-  settleSolid(o);
+  settlePassthrough();
   level.objects.push(o);
   selId = o.id;
+  // a fresh piece starts in passthrough: it may overlap neighbours while you
+  // drag it into place, and settles solid the moment it loses focus.
+  if (settings.solid) passthroughId = o.id;
   if (settings.afterPlace === 'adjust') {
     setArmed(null, true);
     gesture = { kind: 'move', dx: o.x - p.x, dy: o.y - p.y, s0: sp, lifted: false };
@@ -1205,8 +1236,12 @@ $('set-after').onclick = () => {
 };
 $('set-solid').onclick = () => {
   settings.solid = !settings.solid;
+  // solid off means free placement everywhere — a lingering ghost exemption
+  // would just be a misleading indicator, so drop it without moving anything
+  if (!settings.solid) passthroughId = null;
   savePrefs();
   syncSettings();
+  syncInspector();
 };
 $('set-mode').onclick = () => {
   snap();
@@ -1344,6 +1379,9 @@ $('br-copy').onclick = async () => {
 
 /* ----------------------------- inspector ------------------------------ */
 function syncInspector(): void {
+  // losing focus is what finally makes a passthrough piece settle solid —
+  // every selection change routes through here.
+  if (passthroughId && passthroughId !== selId) settlePassthrough();
   const sel = selected();
   $('selwrap').style.display = sel ? 'block' : 'none';
   const shown = sel ? sel.material : curMat;
@@ -1351,6 +1389,9 @@ function syncInspector(): void {
   syncNudge();
   if (!sel) return;
   $('tg-anchor').classList.toggle('on', !!sel.anchored);
+  const pass = $('tg-pass');
+  pass.style.display = settings.solid ? 'flex' : 'none';
+  pass.classList.toggle('on', sel.id === passthroughId);
   $('tg-move').classList.toggle('on', !!sel.path);
   $('tg-note').classList.toggle('on', !!sel.note);
   $('tg-weld').classList.toggle('on', !!sel.group);
@@ -1402,6 +1443,20 @@ $('tg-anchor').onclick = () => {
     s.anchored = !s.anchored;
     syncInspector();
   }
+};
+$('tg-pass').onclick = () => {
+  const s = selected();
+  if (!s || !settings.solid) return;
+  if (s.id === passthroughId) {
+    settlePassthrough();
+    toast('solid again — settled out of any overlap');
+  } else {
+    settlePassthrough();
+    passthroughId = s.id;
+    scheduleAutosave();
+    toast('passthrough — overlap freely; turns solid when it loses focus');
+  }
+  syncInspector();
 };
 $('tg-move').onclick = () => {
   const s = selected();
@@ -1497,11 +1552,16 @@ $('copy').onclick = () => {
   // note, sprite and its ✨ hit effect, but not the weld relationship (which
   // would fuse it to the original as one rigid body).
   delete dup.group;
+  // settle any current ghost (e.g. a just-stamped original) before the copy
+  // lands on top of it, then spawn the copy itself in passthrough so it can
+  // be dragged out of the pile-up instead of being shoved solid immediately.
+  settlePassthrough();
   level.objects.push(dup);
   if (selId) prevSelId = selId;
   selId = dup.id;
+  if (settings.solid) passthroughId = dup.id;
   syncInspector();
-  toast('copied — same attributes; drag it into place');
+  toast('copied — drag it into place; it turns solid when it loses focus');
 };
 $('del').onclick = () => {
   if (!selId) return;
@@ -1725,6 +1785,7 @@ $('m-load').onclick = () => {
     level = l;
     idSeq = maxIdNum(level) + 1;
     selId = null;
+    passthroughId = null;
     syncInspector();
     syncHero();
     syncBg();
@@ -1743,6 +1804,7 @@ $('m-clear').onclick = () => {
   level.meta.backgroundImage = backgroundImage;
   idSeq = 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncBg();
   $<HTMLTextAreaElement>('json').value = serializeLevel(level);
@@ -1758,6 +1820,7 @@ $('m-demo').onclick = () => {
   level.objects = demoObjects();
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncBg();
   $('modal').style.display = 'none';
@@ -1811,6 +1874,7 @@ function loadIntoEditor(l: Level, label: string): void {
   level = JSON.parse(JSON.stringify(l));
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncHero();
   syncBg();
@@ -2049,6 +2113,7 @@ function loadCommittedIntoWorking(l: Level): void {
   level = JSON.parse(JSON.stringify(l));
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncHero();
   syncBg();
