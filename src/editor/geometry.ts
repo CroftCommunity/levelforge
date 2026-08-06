@@ -232,6 +232,21 @@ export interface SolidResult {
 }
 
 /**
+ * The ground is solid for every piece that isn't its own fixture: return the
+ * centre y that puts `o`'s lowest point flush on `floorY`, never below it. Uses
+ * the piece's true (rotation-aware) bounding box, so a tilted plank rests on
+ * whatever corner reaches lowest. Leaves a piece already above the floor where
+ * it is. Independent of neighbour overlap — the floor holds even while a piece
+ * passes through other pieces in ghost mode. Anchored pieces skip this (they're
+ * exempt from the floor entirely). Pure.
+ */
+export function clampAboveFloor(o: GeomObject, floorY: number): number {
+  const box = worldAABB(o);
+  const overshoot = box.maxY - floorY;
+  return overshoot > SOLID_EPS ? o.y - overshoot : o.y;
+}
+
+/**
  * Push `sel`'s centre out of any overlapping solid neighbour, returning the
  * corrected centre (clamped to the world). Only `sel` moves; `others` are
  * treated as fixed. Pieces in the same non-empty weld group as `sel` are

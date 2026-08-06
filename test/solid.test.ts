@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { worldAABB, separate, SOLID_EPS, GeomObject } from '../src/editor/geometry';
+import { worldAABB, separate, clampAboveFloor, SOLID_EPS, GeomObject } from '../src/editor/geometry';
 
 const box = (over: Partial<GeomObject> = {}): GeomObject => ({
   id: 'o1',
@@ -148,7 +148,7 @@ describe('separate', () => {
     expect(r.y).toBe(880);
   });
 
-  it('honours the floor while separating from a neighbour', () => {
+  it('honours the floor while separating from a neighbour (ghost still hits ground)', () => {
     // a copy overlapping a block that rests on the floor must end beside it,
     // never below the floor line
     const other = box({ id: 'b', x: 0, y: 840 }); // resting on floor 860
@@ -161,5 +161,36 @@ describe('separate', () => {
     const ox = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
     const oy = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
     expect(Math.min(ox, oy)).toBeLessThanOrEqual(SOLID_EPS);
+  });
+});
+
+describe('clampAboveFloor', () => {
+  it('lifts a sunken piece so its bottom rests on the floor', () => {
+    const sel = box({ x: 100, y: 880, w: 40, h: 40 }); // bottom at 900, floor 860
+    expect(clampAboveFloor(sel, 860)).toBe(840); // bottom flush at 860
+  });
+
+  it('leaves a piece already above the floor untouched', () => {
+    const sel = box({ x: 100, y: 400, w: 40, h: 40 });
+    expect(clampAboveFloor(sel, 860)).toBe(400);
+  });
+
+  it('leaves a piece resting flush on the floor untouched', () => {
+    const sel = box({ x: 100, y: 840, w: 40, h: 40 }); // bottom exactly at 860
+    expect(clampAboveFloor(sel, 860)).toBe(840);
+  });
+
+  it('rests a rotated plank on its lowest corner', () => {
+    // a 170x24 plank stood vertical (90°): its AABB half-height is 85
+    const plank = box({ x: 1190, y: 895, w: 170, h: 24, angle: 90 });
+    const y = clampAboveFloor(plank, 860);
+    const b = worldAABB({ ...plank, y });
+    expect(b.maxY).toBeCloseTo(860, 5); // lowest corner on the floor line
+  });
+
+  it('does not depend on neighbours — the floor holds through them', () => {
+    // no `others` list at all: ground clamp is purely the piece vs the floor
+    const sel = box({ x: 100, y: 900, w: 40, h: 40 });
+    expect(clampAboveFloor(sel, 860)).toBe(840);
   });
 });
