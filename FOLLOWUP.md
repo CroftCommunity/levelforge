@@ -67,6 +67,47 @@ intentional. Wired in `main.ts` via `settleSolid()` at every finalize point
 settings (default on, persisted in `lf:prefs.solid`) restores the old
 free-placement "objects sit exactly where placed" behaviour when off.
 
+## Full-session autosave + top-right menu (this pass)
+
+**Autosave persists the whole forge session, local-only.** `src/store.ts`
+`saveWorking`/`loadWorkingState` write a versioned `{ v:2, level, undo, redo }`
+object to `lf:working`, so a reload or offline PWA relaunch restores the working
+level **and its full undo/redo replay history** (rehydrated onto the stacks in
+`main.ts`). Offline creation and edit jitter make a local snapshot the only
+dependable plan. Robustness: on real quota pressure the replay history is shed
+oldest-first (undo first, then redo) rather than letting autosave silently die;
+when localStorage is unavailable entirely (private mode) the full session is
+kept in the in-memory fallback instead of being discarded — `trySetPersistent`
+distinguishes `ok`/`quota`/`unavailable`. Legacy bare-`Level` autosaves still
+restore. Autosave preference (`lf:autosave`, default **on**) persists too.
+
+**Top-right hamburger menu** (`index.html` `#menu`, wired in `main.ts`). The
+less-used top-bar actions moved under a `☰` dropdown — Library, Lexicon (`{ }`),
+Settings, How it works — plus the **Autosave** toggle (checked by default).
+Undo / redo / rotate / view / ▶ Test stay on the bar. Dismisses on outside
+pointerdown or Escape.
+
+**pdsview links** (`src/pdsview.ts`). DID-canonical links into
+`pdsview.croft.ing` (`#/at/<did>/<collection>/<rkey>`, matching pdsview's own
+routing) for a saved level (`ing.croft.levelforge.level`) and the level lexicon
+(standard `com.atproto.lexicon.schema` collection). A save-confirm modal
+(`#svmodal`) shows the saved level as a still frame (`renderThumb`) with the
+pdsview link below. The schema/Lexicon modal also carries a "view rendered"
+link so the format is read as a record, not raw JSON.
+
+> **DEFERRED — wire the real PDS identity.** `src/pdsview.ts` has a single
+> placeholder constant `PDS_DID` (`did:plc:REPLACEME…`). While it contains
+> `REPLACEME`, `isConfigured()` is false and every link renders as a *preview*
+> with an honest note rather than a dead jump. levelforge publishes nothing on
+> its own (static PWA, no repo writes — see the constraint below), so:
+> 1. **Minimum to go live:** publish levels (and the level lexicon) to a PDS,
+>    then set `PDS_DID` to the real repo DID. No other code change — links go
+>    live immediately, keyed by `rkeyForLevel(name)` (a slug of the level name).
+> 2. **Bigger piece (out of scope this pass):** an actual publish-to-PDS flow
+>    (ATProto auth + network write) so a saved level becomes a resolvable
+>    record. This crosses the offline-only line and needs its own design.
+> Covered by `test/pdsview.test.ts` (URL shape, slugify, unconfigured guard).
+
 ## Milestone 4 — what shipped vs. left
 
 Shipped: searchable emoji picker (`editor/emoji-data.ts`), custom emoji sprites
@@ -154,5 +195,6 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 | Jump-mode feel constants | `src/play/tuning.ts` |
 | Drive runtime | `src/play/drive.ts` |
 | Forge + game shell + router (the glue) | `src/main.ts` |
-| Persistence (drafts, autosave, download, manage overlay) | `src/store.ts` |
+| Persistence (drafts, full-session autosave + replay history, download, manage overlay) | `src/store.ts` |
+| pdsview.croft.ing link construction (single DID config point) | `src/pdsview.ts` |
 | Shell sort / filter / tag helpers (pure) | `src/organize.ts` |
