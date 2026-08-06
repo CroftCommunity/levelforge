@@ -2073,6 +2073,8 @@ function startPlay(ctx: PlayCtx = { source: 'forge' }): void {
   $('playhint').style.display = 'block';
   $('resetbtn').style.display = 'block';
   $('backbtn').style.display = ctx.source === 'shell' ? 'block' : 'none';
+  $('undo').style.display = 'none';
+  $('redo').style.display = 'none';
   $('tray').style.display = 'none';
   $('inspector').style.display = 'none';
   $('nudge').style.display = 'none';
@@ -2088,6 +2090,8 @@ function stopPlay(): void {
   $('playhint').style.display = 'none';
   $('resetbtn').style.display = 'none';
   $('backbtn').style.display = 'none';
+  $('undo').style.display = '';
+  $('redo').style.display = '';
   $('drive').style.display = 'none';
   hideBanner();
   $('tray').style.display = 'flex';
@@ -2215,6 +2219,8 @@ function showShell(): void {
 }
 $('sh-forge').onclick = () => showForge();
 $('sh-hero').onclick = () => openEmoji('hero');
+// the "EMOJI WARS" wordmark in the forge topbar links back to the level shell
+$('b-home').onclick = () => showShell();
 
 function playFromShell(levels: Level[], index: number): void {
   loadCommittedIntoWorking(levels[index]);
