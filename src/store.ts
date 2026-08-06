@@ -25,6 +25,7 @@ export interface DraftRecord {
 const DRAFT_PREFIX = 'lf:draft:';
 const WORKING_KEY = 'lf:working';
 const MANAGE_KEY = 'lf:manage';
+const AUTOSAVE_PREF_KEY = 'lf:autosave';
 
 const memory = new Map<string, string>();
 
@@ -79,20 +80,113 @@ export function hasPersistentStore(): boolean {
 const draftKey = (name: string) => DRAFT_PREFIX + encodeURIComponent(name);
 
 /* ---------------------- working-level autosave ---------------------- */
+/* Autosave persists the *whole* forge session to the local browser: the
+   current level plus its full undo/redo replay history, so a reload (or an
+   offline PWA relaunch) drops you back exactly where you were, history and
+   all. Nothing leaves the device — offline creation and edit jitter make a
+   local snapshot the only dependable plan. */
 
-export function autosaveWorking(level: Level): void {
-  safeSet(WORKING_KEY, JSON.stringify(level));
+/** The complete forge session. `undo`/`redo` are the same JSON strings the
+    editor keeps on its stacks (each a serialized Level), newest last. */
+export interface WorkingState {
+  level: Level;
+  undo: string[];
+  redo: string[];
+  savedAt: number;
 }
 
-/** Load the autosaved working level, or null if none / invalid. */
-export function loadWorking(): Level | null {
+/** Try to write a value into real localStorage, distinguishing three outcomes:
+    'ok' (persisted), 'quota' (localStorage works but this value didn't fit —
+    trimming may help), and 'unavailable' (no usable localStorage at all —
+    trimming won't help, keep the value in session memory instead). */
+function trySetPersistent(key: string, value: string): 'ok' | 'quota' | 'unavailable' {
+  try {
+    window.localStorage.setItem(key, value);
+    return 'ok';
+  } catch {
+    // Did the write fail because storage is full, or because it isn't there?
+    try {
+      const probe = '__lf_probe__';
+      window.localStorage.setItem(probe, '1');
+      window.localStorage.removeItem(probe);
+      return 'quota';
+    } catch {
+      return 'unavailable';
+    }
+  }
+}
+
+/** Persist the working session (level + replay history).
+
+    localStorage is finite and inline backdrops can be large, so writing 80
+    history frames can blow quota. Rather than let autosave silently die, we
+    shed replay history oldest-first until it fits, keeping the current level.
+    When localStorage is absent entirely (private mode, disabled), we keep the
+    full session in the in-memory fallback instead of needlessly discarding
+    history. Returns true only when persisted to real localStorage. */
+export function saveWorking(state: WorkingState): boolean {
+  const payload = (undo: string[], redo: string[]): string =>
+    JSON.stringify({ v: 2, level: state.level, undo, redo, savedAt: state.savedAt });
+  let undo = state.undo;
+  let redo = state.redo;
+
+  const first = trySetPersistent(WORKING_KEY, payload(undo, redo));
+  if (first === 'ok') return true;
+  if (first === 'unavailable') {
+    memory.set(WORKING_KEY, payload(undo, redo));
+    return false;
+  }
+  // 'quota': trim the replay history to make room — drop the oldest undo frame
+  // first, then the newest redo frame — and retry until it fits.
+  while (undo.length || redo.length) {
+    if (undo.length) undo = undo.slice(1);
+    else redo = redo.slice(0, -1);
+    if (trySetPersistent(WORKING_KEY, payload(undo, redo)) === 'ok') return true;
+  }
+  // Even the bare level didn't fit persistently; keep it in session memory.
+  memory.set(WORKING_KEY, payload([], []));
+  return false;
+}
+
+/** Load the autosaved session, or null if none / invalid. Accepts the legacy
+    shape (a bare Level, pre-history) so older autosaves still restore. */
+export function loadWorkingState(): WorkingState | null {
   const raw = safeGet(WORKING_KEY);
   if (!raw) return null;
   try {
-    return loadLevel(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as unknown;
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [];
+    if (parsed && typeof parsed === 'object' && (parsed as { v?: number }).v === 2) {
+      const p = parsed as { level: unknown; undo?: unknown; redo?: unknown; savedAt?: unknown };
+      return {
+        level: loadLevel(p.level),
+        undo: strings(p.undo),
+        redo: strings(p.redo),
+        savedAt: typeof p.savedAt === 'number' ? p.savedAt : 0,
+      };
+    }
+    // Legacy: the value was a bare serialized Level.
+    return { level: loadLevel(parsed), undo: [], redo: [], savedAt: 0 };
   } catch {
     return null;
   }
+}
+
+/** Drop the autosaved session entirely. */
+export function clearWorking(): void {
+  safeDelete(WORKING_KEY);
+}
+
+/* --------------------------- autosave toggle ------------------------ */
+
+/** Whether autosave is enabled. Defaults ON (checked) when never set. */
+export function loadAutosavePref(): boolean {
+  return safeGet(AUTOSAVE_PREF_KEY) !== '0';
+}
+
+export function saveAutosavePref(on: boolean): void {
+  safeSet(AUTOSAVE_PREF_KEY, on ? '1' : '0');
 }
 
 /* ---------------------------- named drafts -------------------------- */

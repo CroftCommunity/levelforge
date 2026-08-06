@@ -100,6 +100,118 @@
         background: var(--panel);
         border-bottom: 1px solid var(--line);
         flex: none;
+        position: relative; /* anchors the hamburger dropdown */
+      }
+      #b-menu {
+        font-size: 15px;
+        line-height: 1;
+      }
+      #menu {
+        position: absolute;
+        top: calc(100% + 5px);
+        right: 6px;
+        z-index: 35;
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 230px;
+        max-width: calc(100vw - 12px);
+        padding: 8px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+      }
+      #menu .menu-item {
+        width: 100%;
+        text-align: left;
+        background: #1d2c40;
+        padding: 11px;
+        font-size: 13px;
+      }
+      #menu .menu-toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px;
+        border-radius: 8px;
+        background: #14202f;
+        border: 1px solid var(--line);
+        cursor: pointer;
+        font-size: 13px;
+      }
+      #menu .menu-toggle input {
+        margin-top: 1px;
+        width: 17px;
+        height: 17px;
+        flex: none;
+        accent-color: var(--accent);
+      }
+      #menu .menu-toggle small {
+        display: block;
+        margin-top: 3px;
+        color: var(--dim);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+      #menu .menu-sep {
+        height: 1px;
+        background: var(--line);
+        margin: 2px 0;
+      }
+      a.viewlink {
+        display: inline-flex;
+        align-items: center;
+        align-self: flex-start;
+        max-width: 100%;
+        background: #16283c;
+        border: 1px solid var(--viewblue);
+        color: #cfe4ff;
+        border-radius: 8px;
+        padding: 9px 11px;
+        font-size: 12px;
+        text-decoration: none;
+      }
+      a.viewlink:active {
+        transform: translateY(1px);
+      }
+      a.viewlink.preview {
+        border-style: dashed;
+        opacity: 0.85;
+      }
+      .pdsrow {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: none;
+      }
+      .dim-note {
+        color: var(--dim);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      #sv-still {
+        display: flex;
+        justify-content: center;
+        flex: none;
+      }
+      #sv-thumb {
+        width: 100%;
+        max-width: 440px;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        background: #0b1119;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+      #sv-caption {
+        text-align: center;
+        color: var(--ink);
+        font-size: 13px;
+        flex: none;
+      }
+      #svmodal {
+        z-index: 44; /* above the library modal it's launched from */
       }
       #topbar .brand {
         font-size: 9px;
@@ -1041,12 +1153,20 @@
       <div class="brand"><b>EMOJI WARS</b><span><br />forge · schema v0.8</span></div>
       <button id="b-rot" title="rotate selection / flip stamp">⟳</button>
       <button id="b-view" title="pan &amp; zoom">🔍</button>
-      <button id="b-help" title="how it works">💡</button>
-      <button id="b-set" title="settings">⚙</button>
-      <button id="b-schema" title="schema">{ }</button>
-      <button id="b-lib" title="library">💾</button>
       <button id="b-play" class="accent" title="test">▶</button>
       <button id="redo" title="redo">↷</button>
+      <button id="b-menu" title="menu" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div id="menu" role="menu" aria-hidden="true">
+        <label class="menu-toggle">
+          <input type="checkbox" id="autosave-chk" />
+          <span>Autosave<small>keeps this level and its full undo history in this browser — works offline</small></span>
+        </label>
+        <div class="menu-sep"></div>
+        <button id="b-lib" class="menu-item" role="menuitem" title="library">💾&nbsp; Library &amp; save</button>
+        <button id="b-schema" class="menu-item" role="menuitem" title="lexicon">{ }&nbsp; Lexicon</button>
+        <button id="b-set" class="menu-item" role="menuitem" title="settings">⚙&nbsp; Settings</button>
+        <button id="b-help" class="menu-item" role="menuitem" title="how it works">💡&nbsp; How it works</button>
+      </div>
     </div>
 
     <div id="main">
@@ -1228,6 +1348,10 @@
         LEVEL SCHEMA — the contract between you and Claude.<br />
         <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with JSON pasted in.
       </h2>
+      <div class="pdsrow">
+        <a id="lex-pdslink" class="viewlink" target="_blank" rel="noopener">↗&nbsp; View the lexicon on pdsview.croft.ing</a>
+        <span id="lex-pdsnote" class="dim-note"></span>
+      </div>
       <textarea id="json" spellcheck="false"></textarea>
       <div id="err"></div>
       <div class="row">
@@ -1286,6 +1410,17 @@
       </div>
       <div id="lib-list"></div>
       <div class="row"><button id="l-close" class="accent">Close</button></div>
+    </div>
+
+    <div class="modal" id="svmodal">
+      <h2>SAVED — your level lives in this browser. Here's the still you designed.</h2>
+      <div id="sv-still"><canvas id="sv-thumb" width="640" height="360"></canvas></div>
+      <div id="sv-caption"></div>
+      <div class="pdsrow">
+        <a id="sv-pdslink" class="viewlink" target="_blank" rel="noopener">↗&nbsp; View this level on pdsview.croft.ing</a>
+        <span id="sv-pdsnote" class="dim-note"></span>
+      </div>
+      <div class="row"><button id="sv-done" class="accent">Done</button></div>
     </div>
 
     <div id="shell">
