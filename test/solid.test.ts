@@ -126,4 +126,40 @@ describe('separate', () => {
     expect(r.x).toBeLessThanOrEqual(30);
     expect(r.x).toBeGreaterThanOrEqual(0);
   });
+
+  it('pushes a piece up out of the floor when floorY is given', () => {
+    const sel = box({ id: 'a', x: 100, y: 880 }); // bottom at 900, floor at 860
+    const r = separate(sel, [sel], { ...world, floorY: 860 });
+    expect(r.moved).toBe(true);
+    expect(r.y).toBe(840); // bottom flush on the floor line
+  });
+
+  it('leaves a piece resting flush on the floor untouched', () => {
+    const sel = box({ id: 'a', x: 100, y: 840 }); // bottom exactly at 860
+    const r = separate(sel, [sel], { ...world, floorY: 860 });
+    expect(r.moved).toBe(false);
+    expect(r.y).toBe(840);
+  });
+
+  it('ignores the floor when floorY is omitted (anchored pieces may bury)', () => {
+    const sel = box({ id: 'a', x: 100, y: 880 });
+    const r = separate(sel, [sel], world);
+    expect(r.moved).toBe(false);
+    expect(r.y).toBe(880);
+  });
+
+  it('honours the floor while separating from a neighbour', () => {
+    // a copy overlapping a block that rests on the floor must end beside it,
+    // never below the floor line
+    const other = box({ id: 'b', x: 0, y: 840 }); // resting on floor 860
+    const sel = box({ id: 'a', x: 10, y: 850 }); // overlapping, slightly sunken
+    const r = separate(sel, [sel, other], { ...world, floorY: 860 });
+    expect(r.moved).toBe(true);
+    const a = worldAABB({ ...sel, x: r.x, y: r.y });
+    expect(a.maxY).toBeLessThanOrEqual(860 + SOLID_EPS);
+    const b = worldAABB(other);
+    const ox = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+    const oy = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
+    expect(Math.min(ox, oy)).toBeLessThanOrEqual(SOLID_EPS);
+  });
 });
