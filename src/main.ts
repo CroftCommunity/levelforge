@@ -30,8 +30,10 @@ import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, cla
 import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
 import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
-  autosaveWorking,
-  loadWorking,
+  saveWorking,
+  loadWorkingState,
+  loadAutosavePref,
+  saveAutosavePref,
   saveDraft,
   listDrafts,
   deleteDraft,
@@ -42,6 +44,7 @@ import {
   setArchived,
   setTags,
 } from './store';
+import * as pdsview from './pdsview';
 import { committedLevels } from './levels-manifest';
 import {
   LevelEntry,
@@ -145,7 +148,10 @@ function demoObjects(): LevelObject[] {
   ];
 }
 
-let level: Level = loadWorking() ?? withHero(emptyLevel());
+// Restore the whole forge session from the local autosave: the working level
+// plus its undo/redo replay history (see restore below, once the stacks exist).
+const restored = loadWorkingState();
+let level: Level = restored?.level ?? withHero(emptyLevel());
 idSeq = maxIdNum(level) + 1;
 
 function withHero(l: Level): Level {
@@ -161,13 +167,24 @@ const ctx = cv.getContext('2d')!;
 /* ------------------------------- autosave ----------------------------- */
 let autosaveDue = false;
 let lastAutosaveT = 0;
+let autosaveOn = loadAutosavePref();
 function scheduleAutosave(): void {
   autosaveDue = true;
+}
+/** Persist the current level plus the full replay history right now. */
+function autosaveNow(): void {
+  saveWorking({ level, undo: undoStack, redo: redoStack, savedAt: Date.now() });
 }
 
 /* ------------------------------ undo / redo --------------------------- */
 const undoStack: string[] = [];
 const redoStack: string[] = [];
+// Rehydrate the replay history saved alongside the working level so undo/redo
+// survive a reload or offline relaunch.
+if (restored) {
+  for (const s of restored.undo) undoStack.push(s);
+  for (const s of restored.redo) redoStack.push(s);
+}
 function snap(): void {
   undoStack.push(JSON.stringify(level));
   if (undoStack.length > 80) undoStack.shift();
@@ -1541,6 +1558,48 @@ $('ef-none').onclick = () => {
 $('undo').onclick = doUndo;
 $('redo').onclick = doRedo;
 
+/* -------------------- hamburger menu (top-right) ---------------------- */
+/* The less-used top-bar actions live here to keep the bar thumb-light:
+   Library, Lexicon, Settings, Help — plus the autosave toggle. */
+const menuEl = $('menu');
+const menuBtn = $('b-menu');
+function setMenu(open: boolean): void {
+  menuEl.style.display = open ? 'flex' : 'none';
+  menuEl.setAttribute('aria-hidden', String(!open));
+  menuBtn.setAttribute('aria-expanded', String(open));
+}
+menuBtn.onclick = (e) => {
+  e.stopPropagation();
+  setMenu(menuEl.style.display !== 'flex');
+};
+// Dismiss on an outside tap or Escape.
+document.addEventListener('pointerdown', (e) => {
+  if (menuEl.style.display !== 'flex') return;
+  const t = e.target as Node;
+  if (!menuEl.contains(t) && t !== menuBtn) setMenu(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') setMenu(false);
+});
+// The action items open their own modals; close the menu behind them.
+for (const id of ['b-lib', 'b-schema', 'b-set', 'b-help']) {
+  $(id).addEventListener('click', () => setMenu(false));
+}
+
+/* Autosave toggle — checked by default; off stops persisting the session. */
+const autosaveChk = $<HTMLInputElement>('autosave-chk');
+autosaveChk.checked = autosaveOn;
+autosaveChk.onchange = () => {
+  autosaveOn = autosaveChk.checked;
+  saveAutosavePref(autosaveOn);
+  if (autosaveOn) {
+    autosaveNow();
+    toast('autosave on — kept in this browser');
+  } else {
+    toast("autosave off — changes won't be kept");
+  }
+};
+
 /* ---------------------- note editor + dictation ----------------------- */
 let recog: any = null;
 let recActive = false;
@@ -1618,8 +1677,32 @@ $('n-mic').onclick = () => {
 $('b-schema').onclick = () => {
   $<HTMLTextAreaElement>('json').value = serializeLevel(level);
   $('err').textContent = '';
+  applyPdsLink($<HTMLAnchorElement>('lex-pdslink'), $('lex-pdsnote'), pdsview.lexiconUrl(), 'lexicon');
   $('modal').style.display = 'flex';
 };
+
+/* Point a pdsview link at a record and describe its state. Until a real repo
+   DID is wired into pdsview.ts the link is a preview, so say so plainly rather
+   than dangle a dead "verify on your PDS" jump. */
+function applyPdsLink(
+  link: HTMLAnchorElement,
+  note: HTMLElement,
+  url: string,
+  kind: 'level' | 'lexicon',
+): void {
+  link.href = url;
+  if (pdsview.isConfigured()) {
+    link.classList.remove('preview');
+    note.textContent =
+      kind === 'level'
+        ? 'Opens this level on your PDS in the croft.ing viewer — a rendered record, not raw JSON.'
+        : 'Opens the level lexicon rendered on the croft.ing viewer.';
+  } else {
+    link.classList.add('preview');
+    note.textContent =
+      'Preview — the link goes live once levels are published to your PDS (set the repo DID in src/pdsview.ts).';
+  }
+}
 $('m-close').onclick = () => ($('modal').style.display = 'none');
 $('m-copy').onclick = async () => {
   try {
@@ -1708,10 +1791,20 @@ $('sv-go').onclick = () => {
   level.meta.name = name;
   level.meta.scene = $<HTMLInputElement>('sv-scene').value.trim();
   if (saveDraft(name, level.meta.scene, level)) {
-    toast('saved draft: ' + name);
     renderLib();
+    showSaveConfirm(level);
   } else toast('save failed (custom backdrops can exceed storage limits)');
 };
+
+/* Confirm a save by showing the designed level as a still frame — the intent
+   the user just captured — with a link to view it on the PDS below. */
+function showSaveConfirm(l: Level): void {
+  renderThumb($<HTMLCanvasElement>('sv-thumb'), l);
+  $('sv-caption').textContent = l.meta.scene ? `“${l.meta.name}” · ${l.meta.scene}` : `“${l.meta.name}”`;
+  applyPdsLink($<HTMLAnchorElement>('sv-pdslink'), $('sv-pdsnote'), pdsview.levelUrl(l.meta.name), 'level');
+  $('svmodal').style.display = 'flex';
+}
+$('sv-done').onclick = () => ($('svmodal').style.display = 'none');
 
 function loadIntoEditor(l: Level, label: string): void {
   snap();
@@ -2315,10 +2408,10 @@ function frame(now: number): void {
   } else {
     drawPlay(dt);
   }
-  if (autosaveDue && now - lastAutosaveT > 800) {
+  if (autosaveOn && autosaveDue && now - lastAutosaveT > 800) {
     autosaveDue = false;
     lastAutosaveT = now;
-    autosaveWorking(level);
+    autosaveNow();
   }
   requestAnimationFrame(frame);
 }
