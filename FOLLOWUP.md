@@ -125,6 +125,15 @@ serialized into the schema — released centrally in `syncInspector()` and
 cleared without settling wherever the level is replaced wholesale (undo/redo,
 JSON load/clear/demo, library/shell loads) so restored states stay exact.
 
+Field fixes from first phone use: ⧉ copy offsets sideways only (the old
+diagonal offset sank each copy generation a grid step into the ground), and
+`separate()` now takes an optional `floorY` — the ground is solid, so a
+*dynamic* piece can't come to rest buried below the floor line (physics would
+eject it in Test). Anchored pieces are exempt: static sunken decor stays put.
+The portrait piece-menu popup also treats the nudge pad's corner as occupied
+when parking, walking the free corners so it covers neither the piece nor the
+arrows (covering the pad only as a last resort, never the piece).
+
 ## Milestone 4 — what shipped vs. left
 
 Shipped: searchable emoji picker (`editor/emoji-data.ts`), custom emoji sprites

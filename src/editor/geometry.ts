@@ -237,12 +237,14 @@ export interface SolidResult {
  * treated as fixed. Pieces in the same non-empty weld group as `sel` are
  * skipped — a shared group means the overlap is intentional. Resolution runs a
  * few settle passes so a piece wedged between neighbours comes to rest without
- * interpenetration. Pure: nothing is mutated.
+ * interpenetration. When `opts.floorY` is given, the ground is solid as well:
+ * the piece's bounding box may not end below the floor line. Pure: nothing is
+ * mutated.
  */
 export function separate(
   sel: GeomObject,
   others: GeomObject[],
-  opts: { worldW: number; worldH: number },
+  opts: { worldW: number; worldH: number; floorY?: number },
 ): SolidResult {
   const boxes: AABB[] = [];
   for (const o of others) {
@@ -252,7 +254,7 @@ export function separate(
   }
   let x = sel.x;
   let y = sel.y;
-  if (!boxes.length) return { x, y, moved: false };
+  if (!boxes.length && opts.floorY === undefined) return { x, y, moved: false };
 
   const self = worldAABB(sel);
   const hw = (self.maxX - self.minX) / 2;
@@ -277,6 +279,16 @@ export function separate(
       else y += dy < 0 ? -oy : oy;
       anyMoved = true;
       moved = true;
+    }
+    // the ground is solid too (when a floor is given): a piece can't come to
+    // rest buried below the floor line — physics would eject it in Test.
+    if (opts.floorY !== undefined) {
+      const sink = y + offY + hh - opts.floorY;
+      if (sink > SOLID_EPS) {
+        y -= sink;
+        anyMoved = true;
+        moved = true;
+      }
     }
     if (!anyMoved) break;
   }

@@ -572,7 +572,14 @@ function settleSolid(sel: LevelObject): void {
   if (!settings.solid) return;
   if (sel.id === passthroughId) return;
   const others = passthroughId ? level.objects.filter((o) => o.id !== passthroughId) : level.objects;
-  const res = separate(sel as GeomObject, others as GeomObject[], { worldW: level.world.w, worldH: level.world.h });
+  const res = separate(sel as GeomObject, others as GeomObject[], {
+    worldW: level.world.w,
+    worldH: level.world.h,
+    // dynamic pieces also settle up out of the ground — physics would eject a
+    // buried one in Test. Anchored pieces stay static there, so intentionally
+    // sunken decor (a stump, a ramp base) is left where it was put.
+    floorY: sel.anchored ? undefined : level.world.floorY,
+  });
   sel.x = res.x;
   sel.y = res.y;
 }
@@ -988,17 +995,25 @@ function placeSelwrap(): void {
   const pt = cy - rad;
   const pb = cy + rad;
   const overlaps = (l: number, t: number): boolean => !(l + ww < pl || l > pr || t + wh < pt || t > pb);
+  // the nudge pad parks in the corner diagonally opposite the piece (see
+  // syncNudge, which runs before this) — treat its rectangle as occupied too
+  // so the popup never covers the arrows.
+  const nEl = $('nudge');
+  const nr = nEl.style.display !== 'none' ? nEl.getBoundingClientRect() : null;
+  const overNudge = (l: number, t: number): boolean =>
+    !!nr && !(l + ww < nr.left - 6 || l > nr.right + 6 || t + wh < nr.top - 6 || t > nr.bottom + 6);
+  const clearOf = (l: number, t: number): boolean => !overlaps(l, t) && !overNudge(l, t);
 
   const m = 8;
   const maxL = Math.max(m, window.innerWidth - ww - m);
   const maxT = Math.max(m, window.innerHeight - wh - m);
 
-  // continuity: an existing spot that still clears the piece is left untouched
-  // (only nudged back on-screen after a rotate/resize).
+  // continuity: an existing spot that still clears the piece and the pad is
+  // left untouched (only nudged back on-screen after a rotate/resize).
   if (wrapPos) {
     wrapPos.x = Math.min(Math.max(wrapPos.x, m), maxL);
     wrapPos.y = Math.min(Math.max(wrapPos.y, m), maxT);
-    if (!overlaps(wrapPos.x, wrapPos.y)) {
+    if (clearOf(wrapPos.x, wrapPos.y)) {
       applyWrapPos(wrapPos.x, wrapPos.y);
       return;
     }
@@ -1008,16 +1023,43 @@ function placeSelwrap(): void {
   const vpR = Math.min(rect.right, window.innerWidth);
   const vpT = Math.max(rect.top, 0);
   const vpB = Math.min(rect.bottom, window.innerHeight);
-  // park on the horizontal side away from the piece
-  let l = cx > (vpL + vpR) / 2 ? vpL + m : vpR - ww - m;
-  let t = Math.min(Math.max(cy - wh / 2, vpT + m), Math.max(vpT + m, vpB - wh - m));
-  // a piece hugging that same side (very large or centered) — drop to the top
-  // or bottom edge away from it instead.
-  if (overlaps(l, t)) t = cy > (vpT + vpB) / 2 ? vpT + m : Math.max(vpT + m, vpB - wh - m);
-  l = Math.min(Math.max(l, m), maxL);
-  t = Math.min(Math.max(t, m), maxT);
-  wrapPos = { x: l, y: t };
-  applyWrapPos(l, t);
+  const leftL = vpL + m;
+  const rightL = vpR - ww - m;
+  const topT = vpT + m;
+  const botT = Math.max(vpT + m, vpB - wh - m);
+  const midT = Math.min(Math.max(cy - wh / 2, topT), botT);
+  const awayL = cx > (vpL + vpR) / 2 ? leftL : rightL; // horizontal side away from the piece
+  const nearL = cx > (vpL + vpR) / 2 ? rightL : leftL;
+  const awayT = cy > (vpT + vpB) / 2 ? topT : botT; // vertical edge away from the piece (the pad's corner)
+  const nearT = cy > (vpT + vpB) / 2 ? botT : topT;
+  // prefer the away side vertically centred on the piece, then walk the
+  // corners the piece and the pad leave free.
+  const cands: Array<[number, number]> = [
+    [awayL, midT],
+    [awayL, nearT],
+    [nearL, awayT],
+    [nearL, nearT],
+    [nearL, midT],
+  ];
+  let pick: { x: number; y: number } | null = null;
+  for (const [l0, t0] of cands) {
+    const l = Math.min(Math.max(l0, m), maxL);
+    const t = Math.min(Math.max(t0, m), maxT);
+    if (clearOf(l, t)) {
+      pick = { x: l, y: t };
+      break;
+    }
+  }
+  if (!pick) {
+    // nowhere clears both — fall back to the old away-side placement dodging
+    // the piece only; covering the pad beats covering the piece being edited
+    const l = Math.min(Math.max(awayL, m), maxL);
+    let t = midT;
+    if (overlaps(l, t)) t = awayT;
+    pick = { x: l, y: Math.min(Math.max(t, m), maxT) };
+  }
+  wrapPos = pick;
+  applyWrapPos(pick.x, pick.y);
 }
 
 // drag the popup by its grip; the chosen spot sticks (subject to not covering
@@ -1544,10 +1586,12 @@ $('copy').onclick = () => {
   snap();
   const dup: LevelObject = JSON.parse(JSON.stringify(s));
   dup.id = nid();
-  // offset a touch so the copy is visible, then clamp inside the world
+  // offset sideways only so the copy is visible — keeping y means a piece
+  // resting on the floor copies to the same height instead of sinking into
+  // the ground a step per generation
   const off = SNAP * 2;
   dup.x = Math.max(0, Math.min(s.x + off, level.world.w));
-  dup.y = Math.max(0, Math.min(s.y + off, level.world.h));
+  dup.y = s.y;
   // a copy is an independent piece — it keeps material, role, anchor, path,
   // note, sprite and its ✨ hit effect, but not the weld relationship (which
   // would fuse it to the original as one rigid body).
