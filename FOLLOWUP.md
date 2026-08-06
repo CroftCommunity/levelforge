@@ -108,6 +108,32 @@ link so the format is read as a record, not raw JSON.
 >    record. This crosses the offline-only line and needs its own design.
 > Covered by `test/pdsview.test.ts` (URL shape, slugify, unconfigured guard).
 
+## Passthrough (ghost) pieces (this pass)
+
+Solid pieces made a fresh ⧉ copy unusable: the duplicate spawns overlapping its
+original, and the immediate overlap-resolution shoved it (or its neighbours)
+around before it could be dragged into place. Now one piece at a time can be a
+**passthrough ghost** — exempt from solid settling in both directions (it
+neither settles nor blocks others), drawn at reduced alpha so the state reads
+at a glance. New pieces and copies start as ghosts; the moment a ghost loses
+focus (tap elsewhere, select another piece, arm a shape, enter Test) it settles
+solid via the usual `separate()` push. A 👻 chip in the selected-piece controls
+(right rail in landscape, floating popup in portrait; only shown while Solid
+pieces is on) re-enters the mode for any placed piece, e.g. to slip it through
+a tight spot. State is the editor-local `passthroughId` in `main.ts` — never
+serialized into the schema — released centrally in `syncInspector()` and
+cleared without settling wherever the level is replaced wholesale (undo/redo,
+JSON load/clear/demo, library/shell loads) so restored states stay exact.
+
+Field fixes from first phone use: ⧉ copy offsets sideways only (the old
+diagonal offset sank each copy generation a grid step into the ground), and
+`separate()` now takes an optional `floorY` — the ground is solid, so a
+*dynamic* piece can't come to rest buried below the floor line (physics would
+eject it in Test). Anchored pieces are exempt: static sunken decor stays put.
+The portrait piece-menu popup also treats the nudge pad's corner as occupied
+when parking, walking the free corners so it covers neither the piece nor the
+arrows (covering the pad only as a last resort, never the piece).
+
 ## Light/dark theme + opaque floating controls (this pass)
 
 **First-class theme toggle.** ⚙ Settings now leads with a **Theme** control

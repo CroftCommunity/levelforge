@@ -231,6 +231,9 @@ function doRedo(): void {
 function afterHistory(): void {
   selId = null;
   gesture = null;
+  // the level was replaced wholesale — drop the exemption without settling so
+  // the restored state stays exactly as recorded
+  passthroughId = null;
   idSeq = Math.max(idSeq, maxIdNum(level) + 1);
   syncInspector();
   syncHistoryBtns();
@@ -399,7 +402,11 @@ function drawEdit(): void {
       ctx.textBaseline = 'middle';
       ctx.fillText('↔', o.path.x, o.path.y);
     }
+    // the passthrough piece renders as a ghost so "not yet solid" is visible
+    const ghost = o.id === passthroughId;
+    if (ghost) ctx.globalAlpha = 0.55;
     drawMaterialCtx(ctx, o, false);
+    if (ghost) ctx.globalAlpha = 1;
   }
   // live paint preview
   if (gesture && gesture.kind === 'paint' && gesture.pts.length) {
@@ -582,12 +589,40 @@ function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
 
 /** When solid pieces are on, push `sel` out of any overlapping neighbour so a
  *  structure built in the frozen edit view holds together once physics runs.
- *  Called after a piece is placed, moved, rotated, or nudged into position. */
+ *  Called after a piece is placed, moved, rotated, or nudged into position.
+ *  The passthrough piece is non-solid both ways: it neither settles nor is
+ *  settled against, so a ghost sitting inside a structure displaces nothing. */
 function settleSolid(sel: LevelObject): void {
   if (!settings.solid) return;
-  const res = separate(sel as GeomObject, level.objects as GeomObject[], { worldW: level.world.w, worldH: level.world.h });
+  if (sel.id === passthroughId) return;
+  const others = passthroughId ? level.objects.filter((o) => o.id !== passthroughId) : level.objects;
+  const res = separate(sel as GeomObject, others as GeomObject[], {
+    worldW: level.world.w,
+    worldH: level.world.h,
+    // dynamic pieces also settle up out of the ground — physics would eject a
+    // buried one in Test. Anchored pieces stay static there, so intentionally
+    // sunken decor (a stump, a ramp base) is left where it was put.
+    floorY: sel.anchored ? undefined : level.world.floorY,
+  });
   sel.x = res.x;
   sel.y = res.y;
+}
+
+/* ------------------------ passthrough (ghost) -------------------------- */
+/** The one piece temporarily exempt from solid settling. A freshly stamped
+ *  piece or ⧉ copy starts here — it may sit inside neighbours while you drag
+ *  it into place — and the 👻 chip re-enters the mode for any selected piece.
+ *  The moment the piece loses focus it settles solid like everything else. */
+let passthroughId: string | null = null;
+/** End passthrough: settle the ghost out of any overlap and drop the exemption. */
+function settlePassthrough(): void {
+  if (!passthroughId) return;
+  const o = level.objects.find((x) => x.id === passthroughId);
+  passthroughId = null;
+  if (o) {
+    settleSolid(o);
+    scheduleAutosave();
+  }
 }
 
 function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number }): void {
@@ -608,9 +643,12 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   const m = applyMagnet(o);
   if (!m.sx) o.x = snapN(o.x);
   if (!m.sy) o.y = snapN(o.y);
-  settleSolid(o);
+  settlePassthrough();
   level.objects.push(o);
   selId = o.id;
+  // a fresh piece starts in passthrough: it may overlap neighbours while you
+  // drag it into place, and settles solid the moment it loses focus.
+  if (settings.solid) passthroughId = o.id;
   if (settings.afterPlace === 'adjust') {
     setArmed(null, true);
     gesture = { kind: 'move', dx: o.x - p.x, dy: o.y - p.y, s0: sp, lifted: false };
@@ -981,17 +1019,25 @@ function placeSelwrap(): void {
   const pt = cy - rad;
   const pb = cy + rad;
   const overlaps = (l: number, t: number): boolean => !(l + ww < pl || l > pr || t + wh < pt || t > pb);
+  // the nudge pad parks in the corner diagonally opposite the piece (see
+  // syncNudge, which runs before this) — treat its rectangle as occupied too
+  // so the popup never covers the arrows.
+  const nEl = $('nudge');
+  const nr = nEl.style.display !== 'none' ? nEl.getBoundingClientRect() : null;
+  const overNudge = (l: number, t: number): boolean =>
+    !!nr && !(l + ww < nr.left - 6 || l > nr.right + 6 || t + wh < nr.top - 6 || t > nr.bottom + 6);
+  const clearOf = (l: number, t: number): boolean => !overlaps(l, t) && !overNudge(l, t);
 
   const m = 8;
   const maxL = Math.max(m, window.innerWidth - ww - m);
   const maxT = Math.max(m, window.innerHeight - wh - m);
 
-  // continuity: an existing spot that still clears the piece is left untouched
-  // (only nudged back on-screen after a rotate/resize).
+  // continuity: an existing spot that still clears the piece and the pad is
+  // left untouched (only nudged back on-screen after a rotate/resize).
   if (wrapPos) {
     wrapPos.x = Math.min(Math.max(wrapPos.x, m), maxL);
     wrapPos.y = Math.min(Math.max(wrapPos.y, m), maxT);
-    if (!overlaps(wrapPos.x, wrapPos.y)) {
+    if (clearOf(wrapPos.x, wrapPos.y)) {
       applyWrapPos(wrapPos.x, wrapPos.y);
       return;
     }
@@ -1001,16 +1047,43 @@ function placeSelwrap(): void {
   const vpR = Math.min(rect.right, window.innerWidth);
   const vpT = Math.max(rect.top, 0);
   const vpB = Math.min(rect.bottom, window.innerHeight);
-  // park on the horizontal side away from the piece
-  let l = cx > (vpL + vpR) / 2 ? vpL + m : vpR - ww - m;
-  let t = Math.min(Math.max(cy - wh / 2, vpT + m), Math.max(vpT + m, vpB - wh - m));
-  // a piece hugging that same side (very large or centered) — drop to the top
-  // or bottom edge away from it instead.
-  if (overlaps(l, t)) t = cy > (vpT + vpB) / 2 ? vpT + m : Math.max(vpT + m, vpB - wh - m);
-  l = Math.min(Math.max(l, m), maxL);
-  t = Math.min(Math.max(t, m), maxT);
-  wrapPos = { x: l, y: t };
-  applyWrapPos(l, t);
+  const leftL = vpL + m;
+  const rightL = vpR - ww - m;
+  const topT = vpT + m;
+  const botT = Math.max(vpT + m, vpB - wh - m);
+  const midT = Math.min(Math.max(cy - wh / 2, topT), botT);
+  const awayL = cx > (vpL + vpR) / 2 ? leftL : rightL; // horizontal side away from the piece
+  const nearL = cx > (vpL + vpR) / 2 ? rightL : leftL;
+  const awayT = cy > (vpT + vpB) / 2 ? topT : botT; // vertical edge away from the piece (the pad's corner)
+  const nearT = cy > (vpT + vpB) / 2 ? botT : topT;
+  // prefer the away side vertically centred on the piece, then walk the
+  // corners the piece and the pad leave free.
+  const cands: Array<[number, number]> = [
+    [awayL, midT],
+    [awayL, nearT],
+    [nearL, awayT],
+    [nearL, nearT],
+    [nearL, midT],
+  ];
+  let pick: { x: number; y: number } | null = null;
+  for (const [l0, t0] of cands) {
+    const l = Math.min(Math.max(l0, m), maxL);
+    const t = Math.min(Math.max(t0, m), maxT);
+    if (clearOf(l, t)) {
+      pick = { x: l, y: t };
+      break;
+    }
+  }
+  if (!pick) {
+    // nowhere clears both — fall back to the old away-side placement dodging
+    // the piece only; covering the pad beats covering the piece being edited
+    const l = Math.min(Math.max(awayL, m), maxL);
+    let t = midT;
+    if (overlaps(l, t)) t = awayT;
+    pick = { x: l, y: Math.min(Math.max(t, m), maxT) };
+  }
+  wrapPos = pick;
+  applyWrapPos(pick.x, pick.y);
 }
 
 // drag the popup by its grip; the chosen spot sticks (subject to not covering
@@ -1229,8 +1302,12 @@ $('set-after').onclick = () => {
 };
 $('set-solid').onclick = () => {
   settings.solid = !settings.solid;
+  // solid off means free placement everywhere — a lingering ghost exemption
+  // would just be a misleading indicator, so drop it without moving anything
+  if (!settings.solid) passthroughId = null;
   savePrefs();
   syncSettings();
+  syncInspector();
 };
 $('set-theme').onclick = () => {
   settings.theme = cycleTheme(settings.theme);
@@ -1375,6 +1452,9 @@ $('br-copy').onclick = async () => {
 
 /* ----------------------------- inspector ------------------------------ */
 function syncInspector(): void {
+  // losing focus is what finally makes a passthrough piece settle solid —
+  // every selection change routes through here.
+  if (passthroughId && passthroughId !== selId) settlePassthrough();
   const sel = selected();
   $('selwrap').style.display = sel ? 'block' : 'none';
   const shown = sel ? sel.material : curMat;
@@ -1382,6 +1462,9 @@ function syncInspector(): void {
   syncNudge();
   if (!sel) return;
   $('tg-anchor').classList.toggle('on', !!sel.anchored);
+  const pass = $('tg-pass');
+  pass.style.display = settings.solid ? 'flex' : 'none';
+  pass.classList.toggle('on', sel.id === passthroughId);
   $('tg-move').classList.toggle('on', !!sel.path);
   $('tg-note').classList.toggle('on', !!sel.note);
   $('tg-weld').classList.toggle('on', !!sel.group);
@@ -1433,6 +1516,20 @@ $('tg-anchor').onclick = () => {
     s.anchored = !s.anchored;
     syncInspector();
   }
+};
+$('tg-pass').onclick = () => {
+  const s = selected();
+  if (!s || !settings.solid) return;
+  if (s.id === passthroughId) {
+    settlePassthrough();
+    toast('solid again — settled out of any overlap');
+  } else {
+    settlePassthrough();
+    passthroughId = s.id;
+    scheduleAutosave();
+    toast('passthrough — overlap freely; turns solid when it loses focus');
+  }
+  syncInspector();
 };
 $('tg-move').onclick = () => {
   const s = selected();
@@ -1520,19 +1617,26 @@ $('copy').onclick = () => {
   snap();
   const dup: LevelObject = JSON.parse(JSON.stringify(s));
   dup.id = nid();
-  // offset a touch so the copy is visible, then clamp inside the world
+  // offset sideways only so the copy is visible — keeping y means a piece
+  // resting on the floor copies to the same height instead of sinking into
+  // the ground a step per generation
   const off = SNAP * 2;
   dup.x = Math.max(0, Math.min(s.x + off, level.world.w));
-  dup.y = Math.max(0, Math.min(s.y + off, level.world.h));
+  dup.y = s.y;
   // a copy is an independent piece — it keeps material, role, anchor, path,
   // note, sprite and its ✨ hit effect, but not the weld relationship (which
   // would fuse it to the original as one rigid body).
   delete dup.group;
+  // settle any current ghost (e.g. a just-stamped original) before the copy
+  // lands on top of it, then spawn the copy itself in passthrough so it can
+  // be dragged out of the pile-up instead of being shoved solid immediately.
+  settlePassthrough();
   level.objects.push(dup);
   if (selId) prevSelId = selId;
   selId = dup.id;
+  if (settings.solid) passthroughId = dup.id;
   syncInspector();
-  toast('copied — same attributes; drag it into place');
+  toast('copied — drag it into place; it turns solid when it loses focus');
 };
 $('del').onclick = () => {
   if (!selId) return;
@@ -1756,6 +1860,7 @@ $('m-load').onclick = () => {
     level = l;
     idSeq = maxIdNum(level) + 1;
     selId = null;
+    passthroughId = null;
     syncInspector();
     syncHero();
     syncBg();
@@ -1774,6 +1879,7 @@ $('m-clear').onclick = () => {
   level.meta.backgroundImage = backgroundImage;
   idSeq = 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncBg();
   $<HTMLTextAreaElement>('json').value = serializeLevel(level);
@@ -1789,6 +1895,7 @@ $('m-demo').onclick = () => {
   level.objects = demoObjects();
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncBg();
   $('modal').style.display = 'none';
@@ -1842,6 +1949,7 @@ function loadIntoEditor(l: Level, label: string): void {
   level = JSON.parse(JSON.stringify(l));
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncHero();
   syncBg();
@@ -2080,6 +2188,7 @@ function loadCommittedIntoWorking(l: Level): void {
   level = JSON.parse(JSON.stringify(l));
   idSeq = maxIdNum(level) + 1;
   selId = null;
+  passthroughId = null;
   syncInspector();
   syncHero();
   syncBg();

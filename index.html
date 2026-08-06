@@ -1301,6 +1301,7 @@
           <div class="row" id="selchips">
             <span class="chip tgl" id="tg-rot" title="rotate 90°">⟳</span>
             <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
+            <span class="chip tgl" id="tg-pass" title="passthrough — may overlap while selected; settles solid on losing focus">👻</span>
             <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
             <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
             <span class="chip tgl" id="tg-weld" title="weld to the previously selected piece">🔗</span>
@@ -1336,10 +1337,11 @@
 
         <div class="sect"><b>THE SELECTED PIECE</b> — tap a piece to select it; its controls appear in the inspector.
           <ul>
-            <li><b>⧉ copy</b> — duplicates the piece right next to itself, carrying <i>every</i> attribute with it (material, angle, size, ⚓ anchor, ↔ path, ✎ note, 🔗 weld, 🖼️ sprite, 🛡️ role, and its ✨ hit effect). The copy is selected so you can drag it into place.</li>
+            <li><b>⧉ copy</b> — duplicates the piece right next to itself, carrying <i>every</i> attribute with it (material, angle, size, ⚓ anchor, ↔ path, ✎ note, 🔗 weld, 🖼️ sprite, 🛡️ role, and its ✨ hit effect). The copy is selected and spawns as a 👻 passthrough ghost so it can be dragged out of the overlap instead of being trapped in it.</li>
             <li><b>✕ remove</b> — deletes the piece (undo brings it back).</li>
             <li><b>⟳ rotate</b> — turns the piece 90° clockwise.</li>
             <li><b>⚓ anchor</b> — pins the piece in place; it becomes immovable static geometry in Test (walls, ramps, ledges).</li>
+            <li><b>👻 passthrough</b> — (shown when Solid pieces is on) lets the selected piece overlap its neighbours while you position it, drawn as a see-through ghost. New pieces and copies start this way; the moment a ghost loses focus it settles solid, pushed cleanly out of any overlap. Toggle 👻 to slip an already-placed piece through a tight spot.</li>
             <li><b>↔ moving platform</b> — gives the piece a patrol path (drag the ↔ handle to set the far end; it ping-pongs between the two points). Movers matter most in drop &amp; drive.</li>
             <li><b>✎ note</b> — attaches a note: your intent in words. It rides inside the schema so it travels with the level to Claude and back. 🎤 can dictate it.</li>
             <li><b>🔗 weld</b> — fuses this piece to the piece you selected just before it, so they move as one rigid body in Test. Tap one piece, then another, then 🔗. Tap 🔗 again to unweld. (A painted blob is already one welded piece.)</li>
@@ -1391,7 +1393,7 @@
         <button id="set-after"></button>
       </div>
       <div class="setrow">
-        <div class="setlbl">Solid pieces<small>keep placed pieces from overlapping so a structure holds together when physics runs in Test — off restores free placement</small></div>
+        <div class="setlbl">Solid pieces<small>keep placed pieces from overlapping so a structure holds together when physics runs in Test — a new piece or ⧉ copy stays a 👻 passthrough ghost until it loses focus; off restores free placement</small></div>
         <button id="set-solid"></button>
       </div>
       <div class="setrow">
