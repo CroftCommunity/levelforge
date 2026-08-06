@@ -14,6 +14,8 @@ import {
   CURRENT_SCHEMA_VERSION,
   BRUSH_DEFAULT,
   Level,
+  enforceFloor,
+  SLING_POLE_BOTTOM,
 } from '../src/schema';
 
 function baseObject(over: Record<string, unknown> = {}) {
@@ -300,6 +302,47 @@ describe('role: goal (drop/drive goal zones)', () => {
     expect(out.objects[1].role).toBe('goal');
     // idempotent
     expect(loadLevel(JSON.parse(JSON.stringify(out)))).toEqual(out);
+  });
+});
+
+describe('floor healing on load (enforceFloor)', () => {
+  it('lifts a buried non-anchored box to rest on the floor line', () => {
+    // 40×40 box centred on the floor line: bottom edge 20 below it.
+    const out = loadLevel(baseLevel([baseObject({ y: 860 })]));
+    expect(out.objects[0].y).toBe(840); // bottom flush at floorY 860
+  });
+  it('leaves an anchored piece where it was placed (sunken decor is legal)', () => {
+    const out = loadLevel(baseLevel([baseObject({ y: 900, anchored: true })]));
+    expect(out.objects[0].y).toBe(900);
+  });
+  it('leaves a piece already above the floor untouched', () => {
+    const out = loadLevel(baseLevel([baseObject({ y: 500 })]));
+    expect(out.objects[0].y).toBe(500);
+  });
+  it('uses the rotation-aware bounding box for tilted pieces', () => {
+    // 100×20 plank at 90°: its half-extent along y is 50, not 10.
+    const out = loadLevel(baseLevel([baseObject({ w: 100, h: 20, angle: 90, y: 860 })]));
+    expect(out.objects[0].y).toBeCloseTo(810, 5);
+  });
+  it('is idempotent — healing a healed level changes nothing', () => {
+    const once = loadLevel(baseLevel([baseObject({ y: 860 })]));
+    expect(loadLevel(JSON.parse(JSON.stringify(once)))).toEqual(once);
+  });
+  it('plants a slingshot-mode launcher pole on the floor', () => {
+    const lvl = baseLevel([]);
+    (lvl.slingshot as { x: number; y: number }).y = 850; // pole base would be 80 under
+    const out = loadLevel(lvl);
+    expect(out.slingshot.y).toBe(860 - SLING_POLE_BOTTOM);
+  });
+  it('leaves the drop-mode spawn pad alone', () => {
+    const out = loadLevel(baseLevel([], { mode: 'drop' }));
+    expect(out.slingshot.y).toBe(770);
+  });
+  it('enforceFloor is exported for callers that bypass loadLevel (undo/redo)', () => {
+    const l = loadLevel(baseLevel([baseObject({ y: 500 })])) as Level;
+    l.objects[0].y = 1000;
+    enforceFloor(l);
+    expect(l.objects[0].y).toBe(840);
   });
 });
 

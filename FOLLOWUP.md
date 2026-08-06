@@ -52,6 +52,36 @@ that wants full spec parity could migrate `drive→bounce` and `meta.goal→role
 in `migrate()` and fold both jump modes onto the shared `grounded.ts`/`tuning.ts`
 already in place — the seams are set up for it.
 
+## Ground-stability diagnosis: stale deploy + floor healing (this pass)
+
+**Root cause of "pieces still sink after everything we've done": the fixes
+never reached production.** Every push to `main` between the merge of #19
+(11:51 UTC) and #24 (12:57 UTC) built fine, but the `deploy-pages` step timed
+out with GitHub Pages stuck in `deployment_queued` (runs 21–26 all
+failed/cancelled — a Pages-side queue outage). The live bundle was still the
+pre-#19 build: no floor-solid `separate()`, no `clampAboveFloor`, wood
+`breakAt` still 9, opaque hills. A `workflow_dispatch` re-run (run 27) went
+through and the site now serves current `main`. Lesson: when a shipped fix
+"doesn't work", check the deploy run for that commit before re-diagnosing the
+code — `.github/workflows/deploy.yml` supports manual dispatch for exactly
+this.
+
+**Floor healing on load (`enforceFloor`, `src/schema.ts`).** The interaction
+fixes only protected *new* placements; levels already saved with buried
+pieces (autosave sessions, drafts, pasted JSON, committed files — all written
+before the floor rules) restored verbatim and stayed buried forever.
+`loadLevel()` now heals: every non-anchored piece is lifted so its
+rotation-aware bounding box rests on the floor line (anchored decor stays
+put), and a slingshot-mode launcher is planted so its pole base
+(`SLING_POLE_BOTTOM`) sits on the floor. Undo/redo snapshots bypass
+`loadLevel`, so `afterHistory()` in `main.ts` applies `enforceFloor` too —
+rehydrated replay history can hold pre-fix states. Also closed: un-anchoring
+a piece now settles it solid (it was exempt while anchored and nothing
+re-checked), the launcher drag/shape-switch clamps account for the pole
+length, and the editor backdrop is clipped to the board so scenery can't
+spill onto the letterbox. Covered in `test/schema.test.ts` ("floor healing on
+load").
+
 ## Solid pieces in edit mode (this pass)
 
 Pieces placed or moved in the frozen edit view no longer interpenetrate, so a
