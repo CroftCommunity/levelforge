@@ -60,6 +60,7 @@ import { DriveSession } from './play/drive';
 import { DropSession } from './play/drop';
 import { searchEmoji } from './editor/emoji-data';
 import { behaviorFor, EFFECTS, HIT_BEHAVIORS } from './play/behaviors';
+import { ThemePref, DEFAULT_THEME, normalizeTheme, cycleTheme, resolveTheme, themeLabel } from './theme';
 
 const MAXZOOM = 4;
 const BRUSH = BRUSH_DEFAULT;
@@ -96,12 +97,14 @@ interface Prefs {
   afterPlace: 'adjust' | 'stamp';
   /** Solid pieces: push placed/moved pieces out of overlap so structures hold. */
   solid: boolean;
+  /** Chrome palette: dark (default), light, or auto (follow the OS). */
+  theme: ThemePref;
   hero: string;
   recents: string[];
 }
 const PREFS_KEY = 'lf:prefs';
 function loadPrefs(): Prefs {
-  const fallback: Prefs = { afterPlace: 'adjust', solid: true, hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
+  const fallback: Prefs = { afterPlace: 'adjust', solid: true, theme: DEFAULT_THEME, hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
     if (!raw) return fallback;
@@ -109,6 +112,7 @@ function loadPrefs(): Prefs {
     return {
       afterPlace: p.afterPlace === 'stamp' ? 'stamp' : 'adjust',
       solid: p.solid === false ? false : true,
+      theme: normalizeTheme(p.theme),
       hero: typeof p.hero === 'string' && p.hero ? p.hero : DEFAULT_HERO,
       recents: Array.isArray(p.recents) && p.recents.length ? p.recents.slice(0, 10) : fallback.recents,
     };
@@ -118,14 +122,34 @@ function loadPrefs(): Prefs {
 }
 function savePrefs(): void {
   try {
-    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, solid: settings.solid, hero: prefHero, recents: emojiRecents }));
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, solid: settings.solid, theme: settings.theme, hero: prefHero, recents: emojiRecents }));
   } catch {
     /* ignore */
   }
 }
 
 const prefs = loadPrefs();
-const settings = { afterPlace: prefs.afterPlace, solid: prefs.solid };
+const settings = { afterPlace: prefs.afterPlace, solid: prefs.solid, theme: prefs.theme };
+
+/* ------------------------------ theme --------------------------------- */
+// The inline <head> script already set data-theme before first paint; this is
+// the live side — re-apply on toggle and when the OS scheme flips under auto.
+const systemDarkMq = window.matchMedia('(prefers-color-scheme: dark)');
+let stageFill = '#0a0f16'; // canvas letterbox outside the world; synced to --stage
+function applyTheme(): void {
+  const resolved = resolveTheme(settings.theme, systemDarkMq.matches);
+  document.documentElement.dataset.theme = resolved;
+  const css = getComputedStyle(document.documentElement);
+  stageFill = css.getPropertyValue('--stage').trim() || stageFill;
+  // keep the browser/OS chrome (address bar, status bar) matched to the shell
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', css.getPropertyValue('--bg').trim() || '#0f1722');
+}
+systemDarkMq.addEventListener('change', () => {
+  if (settings.theme === 'auto') {
+    applyTheme();
+    syncSettings();
+  }
+});
 let prefHero = prefs.hero;
 let emojiRecents = [...prefs.recents];
 let curEmoji = '🎃';
@@ -289,7 +313,7 @@ const scr = (e: PointerEvent): { sx: number; sy: number } => {
 /* ------------------------------ drawing ------------------------------- */
 function drawWorldBase(editGrid: boolean): void {
   ctx.clearRect(0, 0, cw, chh);
-  ctx.fillStyle = '#0a0f16';
+  ctx.fillStyle = stageFill;
   ctx.fillRect(0, 0, cw, chh);
   ctx.save();
   ctx.translate(view.ox, view.oy);
@@ -1208,6 +1232,12 @@ $('set-solid').onclick = () => {
   savePrefs();
   syncSettings();
 };
+$('set-theme').onclick = () => {
+  settings.theme = cycleTheme(settings.theme);
+  savePrefs();
+  applyTheme();
+  syncSettings();
+};
 $('set-mode').onclick = () => {
   snap();
   // cycle slingshot → drop → drive → slingshot
@@ -1268,6 +1298,7 @@ bounceEl.addEventListener('change', () => {
 function syncSettings(): void {
   $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
   $('set-solid').textContent = settings.solid ? 'on — no overlaps' : 'off — free placement';
+  $('set-theme').textContent = themeLabel(settings.theme, systemDarkMq.matches);
   $('set-mode').textContent = modeLabel(level.meta.mode);
   const tall = level.world.h > level.world.w;
   $('set-shape').textContent = `${tall ? '⬍ tall' : '⬌ wide'} ${level.world.w}×${level.world.h}`;
@@ -2426,6 +2457,7 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 }
 
 /* ------------------------------- boot --------------------------------- */
+applyTheme();
 drawIco();
 syncViewBtn();
 resize();
