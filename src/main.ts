@@ -26,7 +26,7 @@ import {
   WorldShape,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
-import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, clampToWorld, GeomObject } from './editor/geometry';
+import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, clampToWorld, GeomObject } from './editor/geometry';
 import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
 import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
@@ -91,18 +91,21 @@ const EMOJI_PALETTE = [
 /* ------------------------------ prefs --------------------------------- */
 interface Prefs {
   afterPlace: 'adjust' | 'stamp';
+  /** Solid pieces: push placed/moved pieces out of overlap so structures hold. */
+  solid: boolean;
   hero: string;
   recents: string[];
 }
 const PREFS_KEY = 'lf:prefs';
 function loadPrefs(): Prefs {
-  const fallback: Prefs = { afterPlace: 'adjust', hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
+  const fallback: Prefs = { afterPlace: 'adjust', solid: true, hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
     if (!raw) return fallback;
     const p = JSON.parse(raw);
     return {
       afterPlace: p.afterPlace === 'stamp' ? 'stamp' : 'adjust',
+      solid: p.solid === false ? false : true,
       hero: typeof p.hero === 'string' && p.hero ? p.hero : DEFAULT_HERO,
       recents: Array.isArray(p.recents) && p.recents.length ? p.recents.slice(0, 10) : fallback.recents,
     };
@@ -112,14 +115,14 @@ function loadPrefs(): Prefs {
 }
 function savePrefs(): void {
   try {
-    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, hero: prefHero, recents: emojiRecents }));
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, solid: settings.solid, hero: prefHero, recents: emojiRecents }));
   } catch {
     /* ignore */
   }
 }
 
 const prefs = loadPrefs();
-const settings = { afterPlace: prefs.afterPlace };
+const settings = { afterPlace: prefs.afterPlace, solid: prefs.solid };
 let prefHero = prefs.hero;
 let emojiRecents = [...prefs.recents];
 let curEmoji = '🎃';
@@ -536,6 +539,16 @@ function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
   return { sx: res.snappedX, sy: res.snappedY };
 }
 
+/** When solid pieces are on, push `sel` out of any overlapping neighbour so a
+ *  structure built in the frozen edit view holds together once physics runs.
+ *  Called after a piece is placed, moved, rotated, or nudged into position. */
+function settleSolid(sel: LevelObject): void {
+  if (!settings.solid) return;
+  const res = separate(sel as GeomObject, level.objects as GeomObject[], { worldW: level.world.w, worldH: level.world.h });
+  sel.x = res.x;
+  sel.y = res.y;
+}
+
 function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number }): void {
   snap();
   const pr = armed!;
@@ -554,6 +567,7 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   const m = applyMagnet(o);
   if (!m.sx) o.x = snapN(o.x);
   if (!m.sy) o.y = snapN(o.y);
+  settleSolid(o);
   level.objects.push(o);
   selId = o.id;
   if (settings.afterPlace === 'adjust') {
@@ -782,6 +796,7 @@ function endPointer(e: PointerEvent): void {
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
       if (!m.sy) sel.y = snapN(sel.y);
+      settleSolid(sel);
     }
     if (gesture.kind === 'pinch' && sel) {
       if (sel.shape === 'box' || sel.shape === 'tri') {
@@ -793,7 +808,9 @@ function endPointer(e: PointerEvent): void {
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
       if (!m.sy) sel.y = snapN(sel.y);
+      settleSolid(sel);
     }
+    if (gesture.kind === 'rotate' && sel) settleSolid(sel);
     if (gesture.kind === 'path' && sel && sel.path) {
       sel.path.x = snapN(sel.path.x);
       sel.path.y = snapN(sel.path.y);
@@ -841,6 +858,7 @@ document.querySelectorAll<HTMLButtonElement>('#nudge button[data-n]').forEach((b
     const c = clampToWorld(s.x + dx * SNAP, s.y + dy * SNAP, level.world.w, level.world.h);
     s.x = c.x;
     s.y = c.y;
+    settleSolid(s);
     syncReadout();
     scheduleAutosave();
   });
@@ -1168,6 +1186,11 @@ $('set-after').onclick = () => {
   savePrefs();
   syncSettings();
 };
+$('set-solid').onclick = () => {
+  settings.solid = !settings.solid;
+  savePrefs();
+  syncSettings();
+};
 $('set-mode').onclick = () => {
   snap();
   // cycle slingshot → drop → drive → slingshot
@@ -1227,6 +1250,7 @@ bounceEl.addEventListener('change', () => {
 
 function syncSettings(): void {
   $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
+  $('set-solid').textContent = settings.solid ? 'on — no overlaps' : 'off — free placement';
   $('set-mode').textContent = modeLabel(level.meta.mode);
   const tall = level.world.h > level.world.w;
   $('set-shape').textContent = `${tall ? '⬍ tall' : '⬌ wide'} ${level.world.w}×${level.world.h}`;

@@ -52,6 +52,21 @@ that wants full spec parity could migrate `drive→bounce` and `meta.goal→role
 in `migrate()` and fold both jump modes onto the shared `grounded.ts`/`tuning.ts`
 already in place — the seams are set up for it.
 
+## Solid pieces in edit mode (this pass)
+
+Pieces placed or moved in the frozen edit view no longer interpenetrate, so a
+structure built there doesn't blow apart the instant physics wakes in Test. The
+magnet still snaps edges flush; a new overlap-resolution step pushes the piece
+being placed/moved/rotated/nudged out of any solid neighbour along the axis of
+least penetration, using each shape's world-space AABB (`worldAABB` +
+`separate`, pure, in `editor/geometry.ts`, covered by `test/solid.test.ts`).
+Flush contact (overlap ≤ `SOLID_EPS`) is left alone, so magnet seams survive.
+Weld-group mates (shared non-empty `group`) are skipped — that overlap is
+intentional. Wired in `main.ts` via `settleSolid()` at every finalize point
+(place, move/pinch/rotate release, nudge). A **Solid pieces** toggle in ⚙
+settings (default on, persisted in `lf:prefs.solid`) restores the old
+free-placement "objects sit exactly where placed" behaviour when off.
+
 ## Milestone 4 — what shipped vs. left
 
 Shipped: searchable emoji picker (`editor/emoji-data.ts`), custom emoji sprites
