@@ -95,11 +95,11 @@ Density, friction, restitution are matter-js body properties. `breakAt` is the i
 
 | material | color   | density | friction | restitution | breakAt | special |
 |----------|---------|---------|----------|-------------|---------|---------|
-| wood     | #b5824c | 0.0010  | 0.40     | 0.20        | 9       | grain lines |
+| wood     | #b5824c | 0.0010  | 0.40     | 0.20        | 12      | grain lines |
 | stone    | #8e939c | 0.0025  | 0.60     | 0.10        | 20      | speckle |
 | metal    | #a9b6c4 | 0.0040  | 0.30     | 0.05        | null    | riveted plate look |
 | ice      | #9fd6ea | 0.0009  | 0.05     | 0.10        | 6.5     | melts in Test: Body.scale by 0.9985 per frame, removed below 30 percent |
-| rubber   | #d94f5c | 0.0012  | 0.90     | 0.85        | null    | bounce |
+| rubber   | #d94f5c | 0.0012  | 0.90     | 0.92        | null    | bounce |
 | target   | #7bc86c | 0.0008  | 0.50     | 0.30        | 3.2     | the villain material; face drawn on plain circles |
 
 ## Break model (Test mode)
@@ -107,6 +107,8 @@ Density, friction, restitution are matter-js body properties. `breakAt` is the i
 - Skip all break checks for the first 500 ms (settle grace). History: without this, ice pieces resting on the floor shattered at world start and looked like they "fell through the floor".
 
 - On collisionStart, resolve each body to its compound parent if it is a part (`body.parent !== body`), then compute relative speed between the pair.
+
+- Relative speeds below 4 deliver zero impact. History: resting stacks emit low-speed contact jitter as the solver settles them, and a heavy (mass-capped) partner multiplied a ~3-unit settle jolt past wood's threshold — a plain two-post-and-beam structure crumbled on its own at play start.
 
 - Impact against a static body: `speed * 0.55`. Against a dynamic body: `speed * min(otherMass, 10) * 0.3`.
 

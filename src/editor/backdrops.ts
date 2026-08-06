@@ -6,6 +6,11 @@
    copyable agent brief for image-generation agents. Ported from the
    reference; the physics floor stays legible over any art.
 
+   Invariant: the surface pieces rest on is exactly the fy line. Scenery
+   painted above fy (hills, dunes) must read as distant background — hazy,
+   translucent — never as the ground surface, or resting pieces look sunk
+   below ground.
+
    World-refactor: every painter takes the level's world dimensions (W, H)
    and floor line (fy). Nothing here reads a global world size — a tall
    900 x 1600 level paints just as correctly as a wide 1600 x 900 one.
@@ -62,7 +67,8 @@ export const BACKGROUNDS: Record<Exclude<BackgroundKind, 'custom'>, BgFn> = {
       c.ellipse(cxx + 60, cy + 8, 55, 20, 0, 0, 7);
       c.fill();
     }
-    c.fillStyle = '#9ac97a';
+    // distant hills: translucent so they sit behind the playfield, not on it
+    c.fillStyle = 'rgba(154,201,122,.45)';
     c.beginPath();
     c.moveTo(0, fy);
     c.quadraticCurveTo(W * 0.25, fy - 130, W * 0.5, fy);
@@ -71,6 +77,12 @@ export const BACKGROUNDS: Record<Exclude<BackgroundKind, 'custom'>, BgFn> = {
     c.fill();
     c.fillStyle = '#79b356';
     c.fillRect(0, fy, W, H - fy);
+    c.strokeStyle = '#5f9440';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(0, fy);
+    c.lineTo(W, fy);
+    c.stroke();
     c.strokeStyle = '#5f9440';
     c.lineWidth = 2;
     for (let x = 8; x < W; x += 22) {
@@ -123,7 +135,8 @@ export const BACKGROUNDS: Record<Exclude<BackgroundKind, 'custom'>, BgFn> = {
     c.beginPath();
     c.arc(W - 220, 130, 64, 0, 7);
     c.fill();
-    c.fillStyle = '#e0a95f';
+    // distant dunes: hazy, clearly behind the playfield surface
+    c.fillStyle = 'rgba(224,169,95,.38)';
     c.beginPath();
     c.moveTo(0, fy);
     c.quadraticCurveTo(W * 0.3, fy - 110, W * 0.62, fy - 10);
@@ -133,6 +146,11 @@ export const BACKGROUNDS: Record<Exclude<BackgroundKind, 'custom'>, BgFn> = {
     c.fillStyle = '#dba55e';
     c.fillRect(0, fy, W, H - fy);
     c.strokeStyle = '#b9813f';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(0, fy);
+    c.lineTo(W, fy);
+    c.stroke();
     c.lineWidth = 2;
     for (let i = 0; i < 9; i++) {
       const x = 100 + i * 170;

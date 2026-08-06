@@ -55,7 +55,7 @@ describe('DriveSession — headless physics', () => {
 
   it('meta.bounce tunes the rebound: a dead-ball setting barely bounces', () => {
     const dead = maxRebound(0, 120); // restitution 0 → almost no rebound
-    const lively = maxRebound(0.85, 120); // rubber default → a real bounce
+    const lively = maxRebound(0.92, 120); // rubber default → a real bounce
     expect(dead).toBeLessThan(2);
     expect(lively).toBeGreaterThan(dead + 3);
   });

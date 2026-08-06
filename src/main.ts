@@ -880,6 +880,11 @@ document.querySelectorAll<HTMLButtonElement>('#nudge button[data-n]').forEach((b
     scheduleAutosave();
   });
 });
+// The pad's current corner. Kept across selections (and hide/show) so it only
+// jumps when it actually has to — a pad that hops corners on every tap while
+// working through nearby pieces is distracting.
+let nudgeCorner: { h: 'left' | 'right'; v: 'top' | 'bottom' } | null = null;
+
 function syncNudge(): void {
   const s = selected();
   const el = $('nudge');
@@ -888,23 +893,27 @@ function syncNudge(): void {
     return;
   }
   el.style.display = 'grid';
-  // manifest in the corner diagonally opposite the piece so it never covers it
   const sx = s.x * view.scale + view.ox;
   const sy = s.y * view.scale + view.oy;
-  if (sx > cw / 2) {
-    el.style.left = '10px';
-    el.style.right = 'auto';
-  } else {
-    el.style.right = '10px';
-    el.style.left = 'auto';
+  const rad = pieceScreenExtent(s) + 14; // clearance kept around the piece
+  const pw = el.offsetWidth || 140;
+  const ph = el.offsetHeight || 140;
+  const m = 10;
+  const clears = (c: { h: 'left' | 'right'; v: 'top' | 'bottom' }): boolean => {
+    const l = c.h === 'left' ? m : cw - m - pw;
+    const t = c.v === 'top' ? m : chh - m - ph;
+    return sx + rad < l || sx - rad > l + pw || sy + rad < t || sy - rad > t + ph;
+  };
+  // continuity: the corner it already occupies is kept while it clears the
+  // selection; only when it would cover the piece does it relocate — to the
+  // corner diagonally opposite.
+  if (!nudgeCorner || !clears(nudgeCorner)) {
+    nudgeCorner = { h: sx > cw / 2 ? 'left' : 'right', v: sy > chh / 2 ? 'top' : 'bottom' };
   }
-  if (sy > chh / 2) {
-    el.style.top = '10px';
-    el.style.bottom = 'auto';
-  } else {
-    el.style.bottom = '10px';
-    el.style.top = 'auto';
-  }
+  el.style.left = nudgeCorner.h === 'left' ? `${m}px` : 'auto';
+  el.style.right = nudgeCorner.h === 'right' ? `${m}px` : 'auto';
+  el.style.top = nudgeCorner.v === 'top' ? `${m}px` : 'auto';
+  el.style.bottom = nudgeCorner.v === 'bottom' ? `${m}px` : 'auto';
 }
 
 /* -------------------- floating piece-menu popup ----------------------- */

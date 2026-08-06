@@ -18,11 +18,11 @@ export interface Material {
 }
 
 export const MATERIALS = {
-  wood: { color: '#b5824c', density: 0.001, friction: 0.4, restitution: 0.2, breakAt: 9 },
+  wood: { color: '#b5824c', density: 0.001, friction: 0.4, restitution: 0.2, breakAt: 12 },
   stone: { color: '#8e939c', density: 0.0025, friction: 0.6, restitution: 0.1, breakAt: 20 },
   metal: { color: '#a9b6c4', density: 0.004, friction: 0.3, restitution: 0.05, breakAt: null },
   ice: { color: '#9fd6ea', density: 0.0009, friction: 0.05, restitution: 0.1, breakAt: 6.5 },
-  rubber: { color: '#d94f5c', density: 0.0012, friction: 0.9, restitution: 0.85, breakAt: null },
+  rubber: { color: '#d94f5c', density: 0.0012, friction: 0.9, restitution: 0.92, breakAt: null },
   target: { color: '#7bc86c', density: 0.0008, friction: 0.5, restitution: 0.3, breakAt: 3.2 },
 } satisfies Record<string, Material>;
 
