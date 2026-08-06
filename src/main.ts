@@ -235,6 +235,7 @@ function resize(): void {
   chh = r.height;
   view.fit = Math.min(cw / level.world.w, chh / level.world.h);
   clampView();
+  if (selId) placeSelwrap();
 }
 function resetView(): void {
   view.zoom = 1;
@@ -871,6 +872,118 @@ function syncNudge(): void {
   }
 }
 
+/* -------------------- floating piece-menu popup ----------------------- */
+// In portrait the per-piece controls float over the canvas. They park on the
+// side of the screen away from the selected piece so they never hide what they
+// edit. Once placed they stay put as you tap other pieces (continuity) and only
+// relocate when the current spot would cover the newly selected one. The grip
+// lets you drag the popup anywhere. Landscape keeps these in the side rail.
+let wrapPos: { x: number; y: number } | null = null;
+
+function pieceScreenExtent(o: LevelObject): number {
+  let wr: number;
+  if (o.shape === 'box' || o.shape === 'tri') wr = Math.hypot((o.w ?? 40) / 2, (o.h ?? 40) / 2);
+  else if (o.shape === 'blob') {
+    let m = 0;
+    for (const p of o.pts ?? []) m = Math.max(m, Math.hypot(p[0], p[1]));
+    wr = m + (o.brushR ?? BRUSH);
+  } else wr = o.r ?? 26;
+  return wr * view.scale;
+}
+
+function applyWrapPos(l: number, t: number): void {
+  const el = $('selwrap');
+  el.style.left = `${Math.round(l)}px`;
+  el.style.top = `${Math.round(t)}px`;
+  el.style.right = 'auto';
+  el.style.bottom = 'auto';
+  el.style.transform = 'none';
+}
+
+function placeSelwrap(): void {
+  const el = $('selwrap');
+  if (document.body.classList.contains('land')) {
+    // landscape keeps the controls docked in the side rail — drop any floating
+    // layout so the CSS grid rules take over.
+    el.style.left = el.style.top = el.style.right = el.style.bottom = el.style.transform = '';
+    return;
+  }
+  const sel = selected();
+  if (!sel || el.style.display === 'none') return;
+  const wb = el.getBoundingClientRect();
+  const ww = wb.width || 150;
+  const wh = wb.height || 120;
+  const rect = cv.getBoundingClientRect();
+  const cx = rect.left + sel.x * view.scale + view.ox;
+  const cy = rect.top + sel.y * view.scale + view.oy;
+  const rad = pieceScreenExtent(sel) + 14; // clearance kept around the piece
+  const pl = cx - rad;
+  const pr = cx + rad;
+  const pt = cy - rad;
+  const pb = cy + rad;
+  const overlaps = (l: number, t: number): boolean => !(l + ww < pl || l > pr || t + wh < pt || t > pb);
+
+  const m = 8;
+  const maxL = Math.max(m, window.innerWidth - ww - m);
+  const maxT = Math.max(m, window.innerHeight - wh - m);
+
+  // continuity: an existing spot that still clears the piece is left untouched
+  // (only nudged back on-screen after a rotate/resize).
+  if (wrapPos) {
+    wrapPos.x = Math.min(Math.max(wrapPos.x, m), maxL);
+    wrapPos.y = Math.min(Math.max(wrapPos.y, m), maxT);
+    if (!overlaps(wrapPos.x, wrapPos.y)) {
+      applyWrapPos(wrapPos.x, wrapPos.y);
+      return;
+    }
+  }
+
+  const vpL = Math.max(rect.left, 0);
+  const vpR = Math.min(rect.right, window.innerWidth);
+  const vpT = Math.max(rect.top, 0);
+  const vpB = Math.min(rect.bottom, window.innerHeight);
+  // park on the horizontal side away from the piece
+  let l = cx > (vpL + vpR) / 2 ? vpL + m : vpR - ww - m;
+  let t = Math.min(Math.max(cy - wh / 2, vpT + m), Math.max(vpT + m, vpB - wh - m));
+  // a piece hugging that same side (very large or centered) — drop to the top
+  // or bottom edge away from it instead.
+  if (overlaps(l, t)) t = cy > (vpT + vpB) / 2 ? vpT + m : Math.max(vpT + m, vpB - wh - m);
+  l = Math.min(Math.max(l, m), maxL);
+  t = Math.min(Math.max(t, m), maxT);
+  wrapPos = { x: l, y: t };
+  applyWrapPos(l, t);
+}
+
+// drag the popup by its grip; the chosen spot sticks (subject to not covering
+// the next piece you select).
+{
+  const grip = $('selgrip');
+  const el = $('selwrap');
+  let drag: { dx: number; dy: number; id: number } | null = null;
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wb = el.getBoundingClientRect();
+    drag = { dx: e.clientX - wb.left, dy: e.clientY - wb.top, id: e.pointerId };
+    grip.setPointerCapture(e.pointerId);
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const wb = el.getBoundingClientRect();
+    const maxL = Math.max(4, window.innerWidth - wb.width - 4);
+    const maxT = Math.max(4, window.innerHeight - wb.height - 4);
+    const l = Math.min(Math.max(e.clientX - drag.dx, 4), maxL);
+    const t = Math.min(Math.max(e.clientY - drag.dy, 4), maxT);
+    wrapPos = { x: l, y: t };
+    applyWrapPos(l, t);
+  });
+  const end = (e: PointerEvent): void => {
+    if (drag && e.pointerId === drag.id) drag = null;
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+}
+
 /* ------------------------------ tray ---------------------------------- */
 const tray = $('tray');
 const trayEls: Array<{ el: HTMLElement; pr: ShapePreset }> = [];
@@ -1214,6 +1327,7 @@ function syncInspector(): void {
   effect.title = eff ? `hit effect: ${EFFECTS[eff].label}` : 'hit effect (emoji)';
   $('tg-goal').classList.toggle('on', sel.role === 'goal');
   syncReadout();
+  placeSelwrap();
 }
 function syncReadout(): void {
   const sel = selected();

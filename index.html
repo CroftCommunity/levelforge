@@ -244,6 +244,11 @@
         padding: 0;
         opacity: 0.82;
         background: rgba(29, 44, 64, 0.9);
+        /* a slight glow outline so the pad reads clearly over any backdrop */
+        border: 1px solid rgba(150, 190, 240, 0.55);
+        box-shadow:
+          0 0 6px rgba(120, 170, 230, 0.5),
+          0 0 2px rgba(120, 170, 230, 0.45);
       }
       #nudge .blank {
         visibility: hidden;
@@ -415,6 +420,33 @@
       }
       body:not(.land) #selwrap::-webkit-scrollbar {
         display: none;
+      }
+      /* the floating popup carries a grab strip so it can be dragged clear of
+         whatever it is editing; the rail layout (landscape) hides it. */
+      #selgrip {
+        display: none;
+      }
+      body:not(.land) #selgrip {
+        display: block;
+        position: relative;
+        height: 16px;
+        margin: -3px 0 4px;
+        cursor: grab;
+        touch-action: none;
+      }
+      body:not(.land) #selgrip:active {
+        cursor: grabbing;
+      }
+      body:not(.land) #selgrip::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 44px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(180, 205, 235, 0.45);
       }
       body:not(.land) #selwrap > .row {
         margin-bottom: 9px;
@@ -1057,6 +1089,7 @@
           <span class="swwrap" data-m="target"><span class="sw" style="background: var(--target)"></span><span>target</span></span>
         </div>
         <div id="selwrap" style="display: none">
+          <div id="selgrip" title="drag to move these controls"></div>
           <div class="row" id="selactions">
             <button id="copy" title="duplicate this piece with all its attributes">⧉ copy</button>
             <button id="del" title="remove this piece">✕ remove</button>
