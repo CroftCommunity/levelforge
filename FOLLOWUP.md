@@ -97,8 +97,9 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 - **Emoji search coverage** (`editor/emoji-data.ts`). The keyword DB is a curated
   ~130 entries. For full coverage, bundle `emojibase` data (watch bundle size) or
   the `emoji-picker-element` web component, keeping the OS keyboard fallback.
-- **Scene ordering.** Level-select orders by filename within a scene. If deliberate
-  ordering matters, add a `meta.order` field or a per-scene manifest.
+- **Scene ordering.** Level-select now sorts each scene by newest / backdrop / name
+  (see the shell toolbar; helpers in `src/organize.ts`). For an explicit manual
+  order, a `meta.order` field or per-scene manifest would still be the next step.
 - **PWA update UX** (`public/sw.js`). App shell is cached with a versioned cache;
   consider a "new version available" prompt on service-worker update.
 - **Tests.** Physics runtimes (`world.ts`, `drive.ts`) are covered by pure-helper
@@ -138,4 +139,5 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 | Jump-mode feel constants | `src/play/tuning.ts` |
 | Drive runtime | `src/play/drive.ts` |
 | Forge + game shell + router (the glue) | `src/main.ts` |
-| Persistence (drafts, autosave, download) | `src/store.ts` |
+| Persistence (drafts, autosave, download, manage overlay) | `src/store.ts` |
+| Shell sort / filter / tag helpers (pure) | `src/organize.ts` |

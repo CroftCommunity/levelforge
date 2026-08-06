@@ -23,6 +23,7 @@ import {
   floorYFor,
   DEFAULT_HERO,
   BRUSH_DEFAULT,
+  WorldShape,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
 import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, clampToWorld, GeomObject } from './editor/geometry';
@@ -36,8 +37,21 @@ import {
   deleteDraft,
   hasPersistentStore,
   downloadLevel,
+  manageKey,
+  getManage,
+  setArchived,
+  setTags,
 } from './store';
-import { committedLevels, CommittedLevel } from './levels-manifest';
+import { committedLevels } from './levels-manifest';
+import {
+  LevelEntry,
+  SortKey,
+  SORT_KEYS,
+  SORT_LABELS,
+  allTags,
+  filterEntries,
+  sortEntries,
+} from './organize';
 import { PlaySession } from './play/world';
 import { DriveSession } from './play/drive';
 import { DropSession } from './play/drop';
@@ -109,7 +123,7 @@ const settings = { afterPlace: prefs.afterPlace };
 let prefHero = prefs.hero;
 let emojiRecents = [...prefs.recents];
 let curEmoji = '🎃';
-let emojiFor: 'stamp' | 'hero' = 'stamp';
+let emojiFor: 'stamp' | 'hero' | 'newlevel' = 'stamp';
 
 let idSeq = 1;
 const nid = (): string => 'o' + idSeq++;
@@ -989,12 +1003,12 @@ function renderEmojiResults(query: string): void {
 }
 $<HTMLInputElement>('esearch').addEventListener('input', (e) => renderEmojiResults((e.target as HTMLInputElement).value));
 
-function openEmoji(mode2: 'stamp' | 'hero'): void {
+function openEmoji(mode2: 'stamp' | 'hero' | 'newlevel'): void {
   emojiFor = mode2;
   $('etitle').textContent =
-    mode2 === 'hero'
-      ? 'PICK YOUR HERO — the emoji you fling at the villains.'
-      : 'EMOJI STAMP — a round physics body in the current material. Stamp villains with target material.';
+    mode2 === 'stamp'
+      ? 'EMOJI STAMP — a round physics body in the current material. Stamp villains with target material.'
+      : 'PICK YOUR HERO — the emoji you fling at the villains.';
   $<HTMLInputElement>('einput').value = '';
   $<HTMLInputElement>('esearch').value = '';
   $('eresults').innerHTML = '';
@@ -1003,7 +1017,10 @@ function openEmoji(mode2: 'stamp' | 'hero'): void {
 }
 function pickEmoji(em: string): void {
   emojiRecents = [em, ...emojiRecents.filter((x) => x !== em)].slice(0, 10);
-  if (emojiFor === 'hero') {
+  if (emojiFor === 'newlevel') {
+    wizardHero = em;
+    $('nl-hero').textContent = em;
+  } else if (emojiFor === 'hero') {
     snap();
     level.meta.hero = em;
     prefHero = em;
@@ -1638,7 +1655,7 @@ function renderLib(): void {
 }
 
 /* --------------------------- Test mode -------------------------------- */
-type PlayCtx = { source: 'forge' } | { source: 'shell'; cards: CommittedLevel[]; index: number };
+type PlayCtx = { source: 'forge' } | { source: 'shell'; levels: Level[]; index: number };
 let mode: 'edit' | 'play' = 'edit';
 let session: PlaySession | DriveSession | DropSession | null = null;
 let playKind: 'slingshot' | 'drive' | 'drop' = 'slingshot';
@@ -1714,9 +1731,9 @@ $('backbtn').onclick = () => {
 $('nextbtn').onclick = () => {
   if (playCtx.source !== 'shell') return;
   const next = playCtx.index + 1;
-  if (next >= playCtx.cards.length) return;
+  if (next >= playCtx.levels.length) return;
   playCtx.index = next;
-  loadCommittedIntoWorking(playCtx.cards[next].level);
+  loadCommittedIntoWorking(playCtx.levels[next]);
   newSession();
 };
 
@@ -1787,7 +1804,7 @@ function drawPlay(dt: number): void {
       banner.textContent = playKind === 'slingshot' ? 'LEVEL CLEAR' : 'GOAL! 🏁';
       banner.classList.remove('fail');
       banner.style.display = 'block';
-      if (playCtx.source === 'shell' && playCtx.index < playCtx.cards.length - 1) $('nextbtn').style.display = 'block';
+      if (playCtx.source === 'shell' && playCtx.index < playCtx.levels.length - 1) $('nextbtn').style.display = 'block';
     } else if (session.status === 'failed') {
       banner.textContent = playKind === 'drive' ? 'OUCH — ↺ retry' : 'PROTECT FAILED';
       banner.classList.add('fail');
@@ -1819,69 +1836,312 @@ function showShell(): void {
 $('sh-forge').onclick = () => showForge();
 $('sh-hero').onclick = () => openEmoji('hero');
 
-function playCommitted(cards: CommittedLevel[], index: number): void {
-  loadCommittedIntoWorking(cards[index].level);
+function playFromShell(levels: Level[], index: number): void {
+  loadCommittedIntoWorking(levels[index]);
   $('shell').classList.remove('on');
-  startPlay({ source: 'shell', cards, index });
+  startPlay({ source: 'shell', levels, index });
+}
+
+/* ---- shell organization state (sort / archived / tag filter) ---- */
+let shellSort: SortKey = 'created';
+let showArchived = false;
+let tagFilter: string[] = [];
+
+function modeBadge(l: Level): string {
+  return l.meta.mode === 'drive' ? '🏁 drive' : l.meta.mode === 'drop' ? '🪂 drop' : '🎯 fling';
+}
+
+/** The unified level list: committed (bundled, read-only) + local drafts, each
+    with its management overlay (archived flag + tags) applied. */
+function shellEntries(): LevelEntry[] {
+  const out: LevelEntry[] = [];
+  for (const c of committedLevels()) {
+    const key = manageKey('committed', c.scene, c.name);
+    const m = getManage(key);
+    out.push({ source: 'committed', scene: c.scene || '(no scene)', name: c.name, level: c.level, createdAt: 0, archived: m.archived, tags: m.tags });
+  }
+  for (const d of listDrafts()) {
+    const key = manageKey('draft', d.scene, d.name);
+    const m = getManage(key);
+    out.push({ source: 'draft', scene: d.scene || '(no scene)', name: d.name, level: d.level, createdAt: d.createdAt ?? d.savedAt, archived: m.archived, tags: m.tags });
+  }
+  return out;
+}
+
+function syncShellTools(entries: LevelEntry[]): void {
+  $('sh-sort').textContent = SORT_LABELS[shellSort];
+  const archBtn = $('sh-arch');
+  archBtn.classList.toggle('on', showArchived);
+  const archivedCount = entries.filter((e) => e.archived).length;
+  archBtn.textContent = showArchived ? '📦 hide archived' : `📦 show archived${archivedCount ? ` (${archivedCount})` : ''}`;
+  // keep the active tag filter to tags that still exist, then render the chips
+  const tags = allTags(entries);
+  tagFilter = tagFilter.filter((t) => tags.includes(t));
+  const bar = $('shell-tagbar');
+  bar.innerHTML = '';
+  for (const t of tags) {
+    const chip = document.createElement('button');
+    chip.className = 'tagchip' + (tagFilter.includes(t) ? ' on' : '');
+    chip.textContent = '#' + t;
+    chip.addEventListener('click', () => {
+      tagFilter = tagFilter.includes(t) ? tagFilter.filter((x) => x !== t) : [...tagFilter, t];
+      renderShell();
+    });
+    bar.appendChild(chip);
+  }
+}
+
+function buildShellCard(e: LevelEntry, levels: Level[], index: number): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'card shell-card' + (e.archived ? ' archived' : '');
+
+  const th = document.createElement('canvas');
+  th.width = 300;
+  th.height = 169;
+  card.appendChild(th);
+
+  const nm = document.createElement('div');
+  nm.className = 'nm';
+  nm.textContent = (e.archived ? '📦 ' : '') + e.name;
+  card.appendChild(nm);
+
+  const badge = document.createElement('div');
+  badge.className = 'badge';
+  badge.textContent = modeBadge(e.level);
+  card.appendChild(badge);
+
+  if (e.source === 'draft') {
+    const db = document.createElement('div');
+    db.className = 'draftbadge';
+    db.textContent = 'draft';
+    card.appendChild(db);
+  }
+
+  const manage = document.createElement('button');
+  manage.className = 'manage';
+  manage.textContent = '⋯';
+  manage.title = 'manage this level';
+  manage.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openManage(e);
+  });
+  card.appendChild(manage);
+
+  const edit = document.createElement('button');
+  edit.className = 'edit';
+  edit.textContent = '✎ edit';
+  edit.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    loadCommittedIntoWorking(e.level);
+    showForge();
+  });
+  card.appendChild(edit);
+
+  if (e.tags.length) {
+    const tagRow = document.createElement('div');
+    tagRow.className = 'tags';
+    for (const t of e.tags.slice(0, 4)) {
+      const s = document.createElement('span');
+      s.textContent = '#' + t;
+      tagRow.appendChild(s);
+    }
+    card.appendChild(tagRow);
+  }
+
+  try {
+    renderThumb(th, e.level);
+  } catch {
+    /* ignore */
+  }
+  card.addEventListener('click', () => playFromShell(levels, index));
+  return card;
 }
 
 function renderShell(): void {
   $('sh-hero').textContent = prefHero;
+  const entries = shellEntries();
+  syncShellTools(entries);
   const list = $('shell-list');
   list.innerHTML = '';
-  const all = committedLevels();
-  if (!all.length) {
-    list.innerHTML = '<div class="empty">No committed levels yet.<br />Open the Forge, build one, and commit it under <code>levels/&lt;scene&gt;/</code>.</div>';
+  const visible = filterEntries(entries, { showArchived, tags: tagFilter });
+  if (!visible.length) {
+    list.innerHTML = entries.length
+      ? '<div class="empty">Nothing matches these filters.<br />Clear a tag or toggle 📦 show archived.</div>'
+      : '<div class="empty">No levels yet.<br />Tap <b>＋ New level</b> to forge your first, or commit levels under <code>levels/&lt;scene&gt;/</code>.</div>';
     return;
   }
-  const scenes = new Map<string, CommittedLevel[]>();
-  for (const c of all) {
-    const key = c.scene || '(no scene)';
-    if (!scenes.has(key)) scenes.set(key, []);
-    scenes.get(key)!.push(c);
+  // group by scene, then order within each scene by the chosen sort key
+  const scenes = new Map<string, LevelEntry[]>();
+  for (const e of visible) {
+    if (!scenes.has(e.scene)) scenes.set(e.scene, []);
+    scenes.get(e.scene)!.push(e);
   }
-  for (const [scene, cards] of scenes) {
+  const sceneNames = [...scenes.keys()].sort((a, b) => a.localeCompare(b));
+  for (const scene of sceneNames) {
+    const group = sortEntries(scenes.get(scene)!, shellSort);
+    const levels = group.map((e) => e.level);
     const wrap = document.createElement('div');
     wrap.className = 'scene';
     wrap.innerHTML = `<h3>${scene.toUpperCase()}</h3>`;
     const row = document.createElement('div');
     row.className = 'cards';
-    cards.forEach((c, i) => {
-      const card = document.createElement('div');
-      card.className = 'card shell-card';
-      const th = document.createElement('canvas');
-      th.width = 300;
-      th.height = 169;
-      card.appendChild(th);
-      const nm = document.createElement('div');
-      nm.className = 'nm';
-      nm.textContent = c.name;
-      card.appendChild(nm);
-      const badge = document.createElement('div');
-      badge.className = 'badge';
-      badge.textContent = c.level.meta.mode === 'drive' ? '🏁 drive' : c.level.meta.mode === 'drop' ? '🪂 drop' : '🎯 fling';
-      card.appendChild(badge);
-      const edit = document.createElement('button');
-      edit.className = 'edit';
-      edit.textContent = '✎ edit';
-      edit.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        loadCommittedIntoWorking(c.level);
-        showForge();
-      });
-      card.appendChild(edit);
-      try {
-        renderThumb(th, c.level);
-      } catch {
-        /* ignore */
-      }
-      card.addEventListener('click', () => playCommitted(cards, i));
-      row.appendChild(card);
-    });
+    group.forEach((e, i) => row.appendChild(buildShellCard(e, levels, i)));
     wrap.appendChild(row);
     list.appendChild(wrap);
   }
 }
+
+$('sh-new').onclick = () => openWizard();
+$('sh-sort').onclick = () => {
+  shellSort = SORT_KEYS[(SORT_KEYS.indexOf(shellSort) + 1) % SORT_KEYS.length];
+  renderShell();
+};
+$('sh-arch').onclick = () => {
+  showArchived = !showArchived;
+  renderShell();
+};
+
+/* ---------------------- new-level wizard ------------------------------ */
+let wizardHero = DEFAULT_HERO;
+let wizardBg: BackgroundKind = 'grid';
+let wizardShape: WorldShape = 'wide';
+
+function syncWizardBg(): void {
+  document.querySelectorAll<HTMLElement>('.bgw[data-nlbg]').forEach((b) => b.classList.toggle('on', b.dataset.nlbg === wizardBg));
+}
+function syncWizardShape(): void {
+  $('nl-shape').textContent = wizardShape === 'tall' ? '⬍ tall 900×1600' : '⬌ wide 1600×900';
+}
+function openWizard(): void {
+  wizardHero = prefHero || DEFAULT_HERO;
+  wizardBg = 'grid';
+  wizardShape = 'wide';
+  $<HTMLInputElement>('nl-name').value = '';
+  $<HTMLInputElement>('nl-scene').value = '';
+  $('nl-hero').textContent = wizardHero;
+  syncWizardBg();
+  syncWizardShape();
+  $('nlmodal').style.display = 'flex';
+}
+function createFromWizard(): void {
+  const name = $<HTMLInputElement>('nl-name').value.trim();
+  if (!name) {
+    toast('give your level a name');
+    return;
+  }
+  const scene = $<HTMLInputElement>('nl-scene').value.trim();
+  const l = emptyLevel(wizardShape);
+  l.meta.name = name;
+  l.meta.scene = scene;
+  l.meta.hero = wizardHero;
+  l.meta.background = wizardBg;
+  loadCommittedIntoWorking(l);
+  prefHero = wizardHero;
+  savePrefs();
+  const saved = saveDraft(name, scene, l);
+  $('nlmodal').style.display = 'none';
+  showForge();
+  toast(saved ? `new level: ${name} — start forging` : `new level: ${name} (session only — no persistent storage)`);
+}
+document.querySelectorAll<HTMLElement>('.bgw[data-nlbg]').forEach((b) =>
+  b.addEventListener('click', () => {
+    wizardBg = b.dataset.nlbg as BackgroundKind;
+    syncWizardBg();
+  }),
+);
+$('nl-shape').onclick = () => {
+  wizardShape = wizardShape === 'wide' ? 'tall' : 'wide';
+  syncWizardShape();
+};
+$('nl-hero').onclick = () => openEmoji('newlevel');
+$('nl-cancel').onclick = () => ($('nlmodal').style.display = 'none');
+$('nl-create').onclick = () => createFromWizard();
+
+/* ---------------------- per-level manage modal ------------------------ */
+let mgmtEntry: LevelEntry | null = null;
+let mgmtKey = '';
+
+function renderMgmtTags(): void {
+  const box = $('mgmt-tags');
+  box.innerHTML = '';
+  const tags = getManage(mgmtKey).tags;
+  if (!tags.length) {
+    box.innerHTML = '<span class="empty">no tags yet</span>';
+    return;
+  }
+  for (const t of tags) {
+    const chip = document.createElement('span');
+    chip.className = 'tag';
+    chip.textContent = t;
+    const x = document.createElement('b');
+    x.textContent = '✕';
+    x.title = 'remove tag';
+    x.addEventListener('click', () => {
+      setTags(
+        mgmtKey,
+        tags.filter((v) => v !== t),
+      );
+      renderMgmtTags();
+    });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  }
+}
+function addMgmtTag(): void {
+  const input = $<HTMLInputElement>('mgmt-taginput');
+  const raw = input.value.trim();
+  if (!raw) return;
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  setTags(mgmtKey, [...getManage(mgmtKey).tags, ...parts]);
+  input.value = '';
+  renderMgmtTags();
+}
+function openManage(e: LevelEntry): void {
+  mgmtEntry = e;
+  mgmtKey = manageKey(e.source, e.scene, e.name);
+  $('mgmt-title').textContent = `MANAGE — ${e.name}`;
+  const kind = e.source === 'committed' ? 'committed level' : 'local draft';
+  $('mgmt-sub').textContent = `${kind} · scene: ${e.scene} · ${modeBadge(e.level)}`;
+  renderMgmtTags();
+  $('mgmt-archive').textContent = getManage(mgmtKey).archived ? '📤 Unarchive' : '📦 Archive';
+  const del = $<HTMLButtonElement>('mgmt-delete');
+  // committed levels ship inside the app bundle and can't be removed from the
+  // browser — archiving is how you hide them.
+  del.disabled = e.source === 'committed';
+  del.title = e.source === 'committed' ? "committed levels can't be deleted — archive to hide" : 'delete this draft permanently';
+  $('mgmtmodal').style.display = 'flex';
+}
+$('mgmt-tagadd').onclick = addMgmtTag;
+$<HTMLInputElement>('mgmt-taginput').addEventListener('keydown', (e) => {
+  if ((e as KeyboardEvent).key === 'Enter') addMgmtTag();
+});
+$('mgmt-archive').onclick = () => {
+  if (!mgmtEntry) return;
+  const next = !getManage(mgmtKey).archived;
+  setArchived(mgmtKey, next);
+  $('mgmt-archive').textContent = next ? '📤 Unarchive' : '📦 Archive';
+  toast(next ? 'archived — hidden unless “show archived” is on' : 'unarchived');
+};
+$('mgmt-delete').onclick = () => {
+  if (!mgmtEntry || mgmtEntry.source !== 'draft') return;
+  if (!window.confirm(`Delete draft “${mgmtEntry.name}”? This can't be undone.`)) return;
+  const name = mgmtEntry.name;
+  deleteDraft(name);
+  mgmtEntry = null;
+  $('mgmtmodal').style.display = 'none';
+  toast('deleted: ' + name);
+  renderShell();
+};
+$('mgmt-edit').onclick = () => {
+  if (!mgmtEntry) return;
+  loadCommittedIntoWorking(mgmtEntry.level);
+  $('mgmtmodal').style.display = 'none';
+  showForge();
+};
+$('mgmt-close').onclick = () => {
+  $('mgmtmodal').style.display = 'none';
+  renderShell();
+};
 
 /* ------------------------------ router -------------------------------- */
 function route(): void {
@@ -1890,12 +2150,11 @@ function route(): void {
   if (play) {
     const scene = decodeURIComponent(play[1]);
     const name = decodeURIComponent(play[2]);
-    const all = committedLevels();
-    const cards = all.filter((c) => (c.scene || '(no scene)') === scene);
+    const cards = committedLevels().filter((c) => (c.scene || '(no scene)') === scene);
     const idx = cards.findIndex((c) => c.name === name);
     if (idx >= 0) {
       $('shell').classList.remove('on');
-      playCommitted(cards, idx);
+      playFromShell(cards.map((c) => c.level), idx);
       return;
     }
   }
