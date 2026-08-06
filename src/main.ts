@@ -26,7 +26,7 @@ import {
   WorldShape,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
-import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, clampToWorld, GeomObject } from './editor/geometry';
+import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, clampToWorld, clampAboveFloor, GeomObject } from './editor/geometry';
 import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
 import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
@@ -322,6 +322,13 @@ function drawWorldBase(editGrid: boolean): void {
   ctx.translate(view.ox, view.oy);
   ctx.scale(view.scale, view.scale);
   drawBackdrop(ctx, level, editGrid);
+  // Clip everything drawn after the backdrop to the board rectangle. A piece
+  // pushed partly off the board (allowed) then has its overhang hidden behind
+  // the surrounding background/letterbox instead of drawn on top of it. Popped
+  // by the caller's matching ctx.restore().
+  ctx.beginPath();
+  ctx.rect(0, 0, level.world.w, level.world.h);
+  ctx.clip();
 }
 
 /** A spawn pad for the non-slingshot modes (the launcher reinterpreted). */
@@ -587,22 +594,32 @@ function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
   return { sx: res.snappedX, sy: res.snappedY };
 }
 
-/** When solid pieces are on, push `sel` out of any overlapping neighbour so a
- *  structure built in the frozen edit view holds together once physics runs.
- *  Called after a piece is placed, moved, rotated, or nudged into position.
- *  The passthrough piece is non-solid both ways: it neither settles nor is
- *  settled against, so a ghost sitting inside a structure displaces nothing. */
+/** Settle `sel` after it is placed, moved, rotated, or nudged.
+ *
+ *  The ground is *always* solid for a non-anchored piece: it never comes to
+ *  rest below the floor line, regardless of the solid-pieces toggle or ghost
+ *  mode — you can always build on the floor. Physics would eject a buried piece
+ *  the moment Test runs, so the editor won't let one settle there. Anchored
+ *  pieces are their own fixture and are exempt, so intentionally sunken decor (a
+ *  stump, a ramp base) is left where it was put.
+ *
+ *  Neighbour-overlap resolution is the part gated by the solid toggle and ghost
+ *  mode: with solid off, or for the passthrough piece, `sel` may sit inside
+ *  other pieces freely — but the floor still holds. */
 function settleSolid(sel: LevelObject): void {
-  if (!settings.solid) return;
-  if (sel.id === passthroughId) return;
-  const others = passthroughId ? level.objects.filter((o) => o.id !== passthroughId) : level.objects;
+  const resolveOverlap = settings.solid && sel.id !== passthroughId;
+  const floorY = sel.anchored ? undefined : level.world.floorY;
+  // Anchored + no overlap resolution → nothing to enforce.
+  if (!resolveOverlap && floorY === undefined) return;
+  const others = resolveOverlap
+    ? passthroughId
+      ? level.objects.filter((o) => o.id !== passthroughId)
+      : level.objects
+    : [];
   const res = separate(sel as GeomObject, others as GeomObject[], {
     worldW: level.world.w,
     worldH: level.world.h,
-    // dynamic pieces also settle up out of the ground — physics would eject a
-    // buried one in Test. Anchored pieces stay static there, so intentionally
-    // sunken decor (a stump, a ramp base) is left where it was put.
-    floorY: sel.anchored ? undefined : level.world.floorY,
+    floorY,
   });
   sel.x = res.x;
   sel.y = res.y;
@@ -643,6 +660,8 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   const m = applyMagnet(o);
   if (!m.sx) o.x = snapN(o.x);
   if (!m.sy) o.y = snapN(o.y);
+  // A fresh piece never lands below the floor, even stamped there in ghost mode.
+  o.y = clampAboveFloor(o as GeomObject, level.world.floorY);
   settlePassthrough();
   level.objects.push(o);
   selId = o.id;
@@ -845,6 +864,9 @@ cv.addEventListener('pointermove', (e) => {
     sel.x = c.x;
     sel.y = c.y;
     applyMagnet(sel);
+    // The ground is solid even mid-drag (and even in ghost mode): a non-anchored
+    // piece rides along the floor instead of sinking through it.
+    if (!sel.anchored) sel.y = clampAboveFloor(sel as GeomObject, level.world.floorY);
   } else if (gesture.kind === 'path' && sel && sel.path) {
     const c = clampToWorld(p.x, p.y, level.world.w, level.world.h);
     sel.path.x = c.x;
