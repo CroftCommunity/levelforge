@@ -41,7 +41,8 @@ index.html            app shell (markup + CSS)
 src/
   schema.ts           types, strict validation, forward migration (0.2 -> 0.8)
   materials.ts        the material table (all physics lives here)
-  store.ts            localStorage drafts + working-level autosave + download
+  store.ts            localStorage drafts + working-level autosave + download + manage overlay
+  organize.ts         pure sort / filter / tag helpers for the shell
   levels-manifest.ts  committed levels bundled at build time
   editor/
     geometry.ts       pure geometry + magnet/grid snapping + blob hit math
@@ -66,6 +67,16 @@ scripts/gen-icons.mjs regenerate the PWA PNG icons (no deps)
 The app opens on a **level-select shell** (`#/`) grouped by scene; tapping a card
 plays it (`#/play/<scene>/<file>` deep-links straight into play), with retry / next
 / back chrome. `✎ Forge` (`#/forge`) opens the editor on your working level.
+
+The shell doubles as the **level manager**. `＋ New level` opens a wizard (pick a
+backdrop, hero, and world shape, name it) that creates a draft and drops you into
+the forge. Local drafts appear here alongside committed levels; each card has a
+`⋯` menu to tag it, archive it, or (drafts only) delete it. Archived levels are
+hidden behind a **show archived** toggle, a tag-filter row narrows the list, and a
+sort control orders each scene by newest / backdrop / name. Archive state and tags
+live in a small `lf:manage` localStorage overlay (see `src/store.ts`), kept outside
+the level JSON so they apply to committed levels too and never rewrite a heavy
+draft; the pure sort/filter helpers are in `src/organize.ts`.
 
 ## Modes
 
