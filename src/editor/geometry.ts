@@ -6,7 +6,9 @@
    purity) and is covered directly in test/magnet.test.ts.
    ===================================================================== */
 
-import { ShapeKind } from '../schema';
+// Type-only: keeps this module free of runtime imports so schema.ts can import
+// the pure floor-clamp math from here without creating a module cycle.
+import type { ShapeKind } from '../schema';
 
 export const SNAP = 10; // grid unit
 export const MAGNET = 14; // base magnet threshold (world units, scaled by zoom)

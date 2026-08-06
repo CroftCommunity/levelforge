@@ -21,6 +21,7 @@
    ===================================================================== */
 
 import { MaterialKey, isMaterialKey } from './materials';
+import { clampAboveFloor } from './editor/geometry';
 
 export const CURRENT_SCHEMA_VERSION = '0.8';
 
@@ -37,6 +38,10 @@ export type WorldShape = 'wide' | 'tall';
 /** Default world used to fill a level that arrives without one (migration). */
 export const WORLD = WIDE;
 export const DEFAULT_FLOOR_Y = floorYFor(WIDE.h); // 860
+/** How far the slingshot's drawn pole extends below its y (see render.ts).
+    In slingshot mode the launcher reads as planted when its base is on the
+    floor line, so slingshot.y is kept at or above floorY - SLING_POLE_BOTTOM. */
+export const SLING_POLE_BOTTOM = 90;
 export const DEFAULT_HERO = '🙂';
 /** Default blob brush radius, matching the reference BRUSH constant. */
 export const BRUSH_DEFAULT = 26;
@@ -439,9 +444,37 @@ export function validateLevel(input: unknown): Level {
   };
 }
 
-/** Main entry for untrusted input: migrate then strictly validate. */
+/* --------------------------------------------------------------------- */
+/* Floor healing — the ground-solid invariant applied to stored data.      */
+/* --------------------------------------------------------------------- */
+
+/**
+ * The ground is solid for every non-anchored piece: Test-mode physics would
+ * eject a buried piece the moment it starts, so a level entering the app is
+ * healed on load — each dynamic piece is lifted until its lowest point (true
+ * rotation-aware bounding box) rests on the floor line. This closes the gap
+ * left by fixing only the editor *interactions*: autosaves, drafts, and pasted
+ * JSON written before those fixes still carry buried pieces, and would keep
+ * them forever otherwise. Anchored pieces are their own fixture and keep
+ * intentionally sunken decor. In slingshot mode the launcher pole is planted
+ * the same way (base at or above the floor). Mutates and returns `level`.
+ */
+export function enforceFloor(level: Level): Level {
+  const fy = level.world.floorY;
+  for (const o of level.objects) {
+    if (!o.anchored) o.y = clampAboveFloor(o, fy);
+  }
+  // (skip degenerate hand-written worlds whose floor is too high for the pole)
+  if (level.meta.mode === 'slingshot' && fy - SLING_POLE_BOTTOM >= 20) {
+    level.slingshot.y = Math.min(level.slingshot.y, fy - SLING_POLE_BOTTOM);
+  }
+  return level;
+}
+
+/** Main entry for untrusted input: migrate, strictly validate, then heal any
+    piece buried below the floor (see enforceFloor). */
 export function loadLevel(input: unknown): Level {
-  return validateLevel(migrateToCurrent(input));
+  return enforceFloor(validateLevel(migrateToCurrent(input)));
 }
 
 export function parseLevel(text: string): Level {

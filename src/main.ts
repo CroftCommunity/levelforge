@@ -24,6 +24,8 @@ import {
   DEFAULT_HERO,
   BRUSH_DEFAULT,
   WorldShape,
+  enforceFloor,
+  SLING_POLE_BOTTOM,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
 import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, clampToWorld, clampAboveFloor, GeomObject } from './editor/geometry';
@@ -234,6 +236,10 @@ function afterHistory(): void {
   // the level was replaced wholesale — drop the exemption without settling so
   // the restored state stays exactly as recorded
   passthroughId = null;
+  // …except for the ground-solid invariant: replay history rehydrated from an
+  // autosave can hold states recorded before the floor rules existed, so an
+  // undo/redo could resurrect buried pieces. Heal those (and only those).
+  enforceFloor(level);
   idSeq = Math.max(idSeq, maxIdNum(level) + 1);
   syncInspector();
   syncHistoryBtns();
@@ -321,14 +327,15 @@ function drawWorldBase(editGrid: boolean): void {
   ctx.save();
   ctx.translate(view.ox, view.oy);
   ctx.scale(view.scale, view.scale);
-  drawBackdrop(ctx, level, editGrid);
-  // Clip everything drawn after the backdrop to the board rectangle. A piece
-  // pushed partly off the board (allowed) then has its overhang hidden behind
-  // the surrounding background/letterbox instead of drawn on top of it. Popped
-  // by the caller's matching ctx.restore().
+  // Clip all world content — the backdrop included — to the board rectangle. A
+  // piece pushed partly off the board (allowed) has its overhang hidden behind
+  // the surrounding background/letterbox instead of drawn on top of it, and
+  // scenery (clouds, dunes) painted past the board edge can't spill onto the
+  // letterbox either. Popped by the caller's matching ctx.restore().
   ctx.beginPath();
   ctx.rect(0, 0, level.world.w, level.world.h);
   ctx.clip();
+  drawBackdrop(ctx, level, editGrid);
 }
 
 /** A spawn pad for the non-slingshot modes (the launcher reinterpreted). */
@@ -872,7 +879,11 @@ cv.addEventListener('pointermove', (e) => {
     sel.path.x = c.x;
     sel.path.y = c.y;
   } else if (gesture.kind === 'sling') {
-    const c = clampToWorld(p.x, Math.min(p.y, level.world.floorY - 60), level.world.w, level.world.h);
+    // In slingshot mode the launcher's drawn pole extends SLING_POLE_BOTTOM
+    // below its y — keep the base planted on the floor, never buried in it.
+    // Drop/drive draw a start pad instead, which only needs modest clearance.
+    const minLift = level.meta.mode === 'slingshot' ? SLING_POLE_BOTTOM : 60;
+    const c = clampToWorld(p.x, Math.min(p.y, level.world.floorY - minLift), level.world.w, level.world.h);
     level.slingshot.x = c.x;
     level.slingshot.y = c.y;
   } else if (gesture.kind === 'goal' && level.meta.goal) {
@@ -1374,8 +1385,9 @@ $('set-shape').onclick = () => {
   level.world.h = preset.h;
   level.world.floorY = floorYFor(preset.h);
   // clamp the spawn/launcher back into bounds; keep every object coordinate
+  const slingLift = level.meta.mode === 'slingshot' ? SLING_POLE_BOTTOM : 20;
   level.slingshot.x = Math.max(20, Math.min(level.slingshot.x, level.world.w - 20));
-  level.slingshot.y = Math.max(20, Math.min(level.slingshot.y, level.world.floorY - 20));
+  level.slingshot.y = Math.max(20, Math.min(level.slingshot.y, level.world.floorY - slingLift));
   const oob = level.objects.filter((o) => o.x < 0 || o.x > level.world.w || o.y < 0 || o.y > level.world.h).length;
   resize();
   syncSettings();
@@ -1545,6 +1557,10 @@ $('tg-anchor').onclick = () => {
   if (s) {
     snap();
     s.anchored = !s.anchored;
+    // Anchored pieces are exempt from the solid floor (sunken decor is legal),
+    // so releasing the anchor must surface the piece: as a dynamic body again,
+    // physics would eject it from below the floor the moment Test starts.
+    if (!s.anchored) settleSolid(s);
     syncInspector();
   }
 };

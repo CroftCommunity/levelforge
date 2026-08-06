@@ -8,7 +8,7 @@
    ===================================================================== */
 
 import { MATERIALS, MaterialKey } from '../materials';
-import { WIDE, BRUSH_DEFAULT, BlobPoint } from '../schema';
+import { WIDE, BRUSH_DEFAULT, BlobPoint, SLING_POLE_BOTTOM } from '../schema';
 import { triVerts } from './geometry';
 import { drawBackdrop } from './backdrops';
 import { getSpriteImg } from './sprites';
@@ -265,7 +265,7 @@ export function drawSlingshotCtx(
   c.lineWidth = 10;
   c.lineCap = 'round';
   c.beginPath();
-  c.moveTo(0, 90);
+  c.moveTo(0, SLING_POLE_BOTTOM);
   c.lineTo(0, 10);
   c.stroke();
   c.beginPath();
