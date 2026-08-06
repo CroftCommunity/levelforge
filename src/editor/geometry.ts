@@ -27,6 +27,12 @@ export interface GeomObject {
   h?: number;
   r?: number;
   angle?: number;
+  /** Blob stroke points (relative to centre) — used for its bounding box. */
+  pts?: Array<[number, number]>;
+  /** Blob brush radius, expands the stroke's bounding box. */
+  brushR?: number;
+  /** Weld-group key: pieces sharing one are allowed to overlap (they fuse). */
+  group?: string;
 }
 
 /** Centroid-centred isoceles wedge, apex up. Drawing and physics share this. */
@@ -149,4 +155,131 @@ export function magnetSnap(
     snappedX: bx !== null,
     snappedY: by !== null,
   };
+}
+
+/* =====================================================================
+   Solid pieces — overlap resolution for design mode.
+
+   The magnet snaps edges flush; this keeps pieces from interpenetrating so
+   a structure built in the frozen edit view doesn't explode apart the moment
+   physics wakes up in Test. It nudges only the piece being placed/moved out
+   of any solid neighbour, along the axis of least penetration, using each
+   shape's axis-aligned bounding box. Flush contact (zero overlap) is left
+   untouched so magnet-snapped seams survive. Pure and unit-tested.
+   ===================================================================== */
+
+/** Axis-aligned bounding box in world coordinates. */
+export interface AABB {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/** Overlaps at or below this many world units count as flush contact, not a
+ *  collision — so magnet-snapped seams and float noise never trigger a push. */
+export const SOLID_EPS = 0.5;
+
+/** World-space axis-aligned bounding box for any shape, honouring its angle. */
+export function worldAABB(o: GeomObject): AABB {
+  const x = o.x;
+  const y = o.y;
+  if (o.shape === 'circle' || o.shape === 'emoji') {
+    const r = o.r ?? 0;
+    return { minX: x - r, maxX: x + r, minY: y - r, maxY: y + r };
+  }
+  const a = (o.angle ?? 0) / (180 / Math.PI);
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const add = (lx: number, ly: number): void => {
+    const wx = x + lx * c - ly * s;
+    const wy = y + lx * s + ly * c;
+    if (wx < minX) minX = wx;
+    if (wx > maxX) maxX = wx;
+    if (wy < minY) minY = wy;
+    if (wy > maxY) maxY = wy;
+  };
+  if (o.shape === 'tri') {
+    for (const v of triVerts({ w: o.w ?? 0, h: o.h ?? 0 })) add(v.x, v.y);
+    return { minX, maxX, minY, maxY };
+  }
+  if (o.shape === 'blob') {
+    const br = o.brushR ?? 0;
+    const pts = o.pts ?? [];
+    if (!pts.length) return { minX: x - br, maxX: x + br, minY: y - br, maxY: y + br };
+    for (const [dx, dy] of pts) add(dx, dy);
+    return { minX: minX - br, maxX: maxX + br, minY: minY - br, maxY: maxY + br };
+  }
+  // box
+  const hw = (o.w ?? 0) / 2;
+  const hh = (o.h ?? 0) / 2;
+  add(-hw, -hh);
+  add(hw, -hh);
+  add(hw, hh);
+  add(-hw, hh);
+  return { minX, maxX, minY, maxY };
+}
+
+export interface SolidResult {
+  x: number;
+  y: number;
+  /** Whether the piece had to be pushed out of a neighbour. */
+  moved: boolean;
+}
+
+/**
+ * Push `sel`'s centre out of any overlapping solid neighbour, returning the
+ * corrected centre (clamped to the world). Only `sel` moves; `others` are
+ * treated as fixed. Pieces in the same non-empty weld group as `sel` are
+ * skipped — a shared group means the overlap is intentional. Resolution runs a
+ * few settle passes so a piece wedged between neighbours comes to rest without
+ * interpenetration. Pure: nothing is mutated.
+ */
+export function separate(
+  sel: GeomObject,
+  others: GeomObject[],
+  opts: { worldW: number; worldH: number },
+): SolidResult {
+  const boxes: AABB[] = [];
+  for (const o of others) {
+    if (o.id !== undefined && o.id === sel.id) continue;
+    if (sel.group && o.group && sel.group === o.group) continue;
+    boxes.push(worldAABB(o));
+  }
+  let x = sel.x;
+  let y = sel.y;
+  if (!boxes.length) return { x, y, moved: false };
+
+  const self = worldAABB(sel);
+  const hw = (self.maxX - self.minX) / 2;
+  const hh = (self.maxY - self.minY) / 2;
+  // A tri's bounding box isn't centred on its centroid, so track the offset.
+  const offX = (self.maxX + self.minX) / 2 - sel.x;
+  const offY = (self.maxY + self.minY) / 2 - sel.y;
+
+  let moved = false;
+  const MAX_PASSES = 8;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let anyMoved = false;
+    for (const b of boxes) {
+      const cx = x + offX;
+      const cy = y + offY;
+      const dx = cx - (b.minX + b.maxX) / 2;
+      const dy = cy - (b.minY + b.maxY) / 2;
+      const ox = hw + (b.maxX - b.minX) / 2 - Math.abs(dx);
+      const oy = hh + (b.maxY - b.minY) / 2 - Math.abs(dy);
+      if (ox <= SOLID_EPS || oy <= SOLID_EPS) continue; // separated or flush
+      if (ox < oy) x += dx < 0 ? -ox : ox;
+      else y += dy < 0 ? -oy : oy;
+      anyMoved = true;
+      moved = true;
+    }
+    if (!anyMoved) break;
+  }
+  const c = clampToWorld(x, y, opts.worldW, opts.worldH);
+  return { x: c.x, y: c.y, moved };
 }
