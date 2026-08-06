@@ -7,7 +7,7 @@
      - static assets (same-origin GET): stale-while-revalidate
    Bump CACHE_VERSION to invalidate old caches on deploy. */
 
-const CACHE_VERSION = 'levelforge-v1';
+const CACHE_VERSION = 'levelforge-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

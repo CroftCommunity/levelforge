@@ -134,6 +134,30 @@ The portrait piece-menu popup also treats the nudge pad's corner as occupied
 when parking, walking the free corners so it covers neither the piece nor the
 arrows (covering the pad only as a last resort, never the piece).
 
+## Light/dark theme + opaque floating controls (this pass)
+
+**First-class theme toggle.** ⚙ Settings now leads with a **Theme** control
+cycling **dark → light → auto** (`lf:prefs.theme`, default dark so nothing
+changes until someone opts in; auto follows `prefers-color-scheme` live). The
+pure pref model (normalize/cycle/resolve/label) is `src/theme.ts`, covered by
+`test/theme.test.ts`; main.ts applies it (`data-theme` on `<html>`, canvas
+letterbox `--stage` fill, `theme-color` meta), and a tiny inline script in
+`index.html` mirrors the resolution **before first paint** so there's no flash.
+All chrome colors are CSS custom properties now — the dark palette in `:root`
+is byte-for-byte the original look, and `html[data-theme='light']` carries the
+daylight set (plus `color-scheme`, so form controls/scrollbars follow). Level
+content (backdrops, materials, sprites) is untouched — themes only restyle the
+chrome around the stage.
+
+**Opaque floating controls (bug fix).** The nudge arrow pad, drive buttons,
+and the floating piece-menu popup used translucent backgrounds; a pad button
+straddling the world's edge over a pale backdrop (e.g. desert) rendered
+half-washed-out and read as a stuck/pressed arrow, and world pieces ghosted
+through the popup behind the readout. Those surfaces are opaque tokens now
+(`--pad`, `--float`), and the portrait readout is centered so its wrap looks
+intentional. `sw.js` cache bumped to `levelforge-v2` so installed PWAs pick up
+the new shell.
+
 ## Milestone 4 — what shipped vs. left
 
 Shipped: searchable emoji picker (`editor/emoji-data.ts`), custom emoji sprites
@@ -220,6 +244,7 @@ files directly. See `scripts/gen-assets.mjs` for how the demo assets were made.
 | Grounded/coyote helper (shared) | `src/play/grounded.ts` |
 | Jump-mode feel constants | `src/play/tuning.ts` |
 | Drive runtime | `src/play/drive.ts` |
+| Theme pref model (dark / light / auto) | `src/theme.ts` |
 | Forge + game shell + router (the glue) | `src/main.ts` |
 | Persistence (drafts, full-session autosave + replay history, download, manage overlay) | `src/store.ts` |
 | pdsview.croft.ing link construction (single DID config point) | `src/pdsview.ts` |
