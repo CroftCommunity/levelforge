@@ -707,7 +707,8 @@
       body:not(.land) #selwrap > .row:last-of-type {
         margin-bottom: 0;
       }
-      #eflist {
+      #eflist,
+      #ptlist {
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -744,6 +745,112 @@
       .efopt .efblurb {
         color: var(--dim);
         font-size: 12px;
+      }
+      /* paint row: tool / color / 3-panel size selector (shown while painting) */
+      #paintrow {
+        gap: 6px;
+      }
+      #pt-tool {
+        font-size: 16px;
+        padding: 4px 10px;
+        height: 34px;
+      }
+      #pt-color {
+        padding: 3px;
+        height: 34px;
+      }
+      #pt-colorsw {
+        display: block;
+        width: 28px;
+        height: 26px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.4);
+      }
+      .szsel {
+        display: flex;
+        gap: 4px;
+      }
+      .szbtn {
+        width: 36px;
+        height: 34px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .szbtn i {
+        display: block;
+        border-radius: 50%;
+        background: var(--ink);
+      }
+      .szbtn[data-sz='0'] i {
+        width: 5px;
+        height: 5px;
+      }
+      .szbtn[data-sz='1'] i {
+        width: 10px;
+        height: 10px;
+      }
+      .szbtn[data-sz='2'] i {
+        width: 17px;
+        height: 17px;
+      }
+      .szbtn.on {
+        border-color: var(--accent);
+        background: var(--on-bg);
+      }
+      /* color wheel popup */
+      #cwheelwrap {
+        display: flex;
+        justify-content: center;
+        flex: none;
+      }
+      #cwheel {
+        width: min(240px, 64vw);
+        height: auto;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      #cvalrow {
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+      }
+      #cval {
+        flex: 1;
+        max-width: 220px;
+      }
+      #cprev {
+        width: 34px;
+        height: 28px;
+        border-radius: 8px;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+        flex: none;
+      }
+      #chex {
+        width: 92px;
+        text-align: center;
+      }
+      #crecents {
+        display: flex;
+        gap: 6px;
+        justify-content: center;
+        flex: none;
+        min-height: 28px;
+      }
+      #crecents button {
+        width: 36px;
+        height: 28px;
+        padding: 0;
+        border-radius: 8px;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+      }
+      #cmodal .row:last-of-type {
+        justify-content: center;
+      }
+      #txinput {
+        flex: 1;
+        font-size: 20px;
       }
       #readout {
         font-size: 10.5px;
@@ -1358,6 +1465,15 @@
       <div id="tray"></div>
 
       <div id="inspector">
+        <div class="row" id="paintrow" style="display: none">
+          <button id="pt-tool" title="paint tool — tap to switch (brush / pencil / text)">🖌</button>
+          <button id="pt-color" title="stroke color — tap for the color wheel"><span id="pt-colorsw"></span></button>
+          <span class="szsel" title="stroke size">
+            <button class="szbtn" data-sz="0" title="small"><i></i></button>
+            <button class="szbtn" data-sz="1" title="medium"><i></i></button>
+            <button class="szbtn" data-sz="2" title="large"><i></i></button>
+          </span>
+        </div>
         <div class="row" id="matrow">
           <span class="swwrap" data-m="wood"><span class="sw" style="background: var(--wood)"></span><span>wood</span></span>
           <span class="swwrap" data-m="stone"><span class="sw" style="background: var(--stone)"></span><span>stone</span></span>
@@ -1377,6 +1493,8 @@
             <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
             <span class="chip tgl" id="tg-pass" title="passthrough — may overlap while selected; settles solid on losing focus">👻</span>
             <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
+            <span class="chip tgl" id="tg-color" title="recolor this piece — opens the color wheel">🎨</span>
+            <span class="chip tgl" id="tg-text" title="edit this text" style="display: none">🅰</span>
             <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
             <span class="chip tgl" id="tg-weld" title="weld to the previously selected piece">🔗</span>
             <span class="chip tgl" id="tg-sprite" title="custom image skin" style="display: none">🖼️</span>
@@ -1394,7 +1512,7 @@
       <h2>EMOJI WARS — HOW IT WORKS</h2>
       <div id="helpbody">
         <div class="sect"><b>The idea.</b> Build a level, then play it in one of three modes. In <b>slingshot</b> (the default) you fling your hero emoji at the villains — emoji stamped in <b>target</b> material — and break them all to clear the level.</div>
-        <div class="sect"><b>Placing.</b> Arm a shape in the tray, tap the board to stamp it in the current material. 🖌 paint is different: drag to color in a freeform blob — it becomes one solid piece.</div>
+        <div class="sect"><b>Placing.</b> Arm a shape in the tray, tap the board to stamp it in the current material. 🖌 paint is different: drag to color in a freeform blob — it becomes one solid piece. <b>Double-tap 🖌</b> to switch tools: the paint brush, a ✏️ pencil for fine lines, or a text cursor that places typed words as real physics pieces. While painting, the paint row beside the materials holds the tool, a color swatch (tap for the 🎨 color wheel — your last 5 colors are quick-saved), and a three-size selector.</div>
         <div class="sect"><b>Adjusting (✋).</b> Tap a piece to select. Drag to move — it lifts above your finger and edges magnet-snap flush (blobs skip the magnet). Pinch resizes. Drag a <b>corner grab</b> of the dashed guide box to free-rotate — it soft-snaps to 15° so decline ramps are easy to dial in. Twist or ⟳ rotates too. The arrow pad nudges one grid square per tap.</div>
         <div class="sect"><b>Looking (🔍).</b> Toggle 🔍, then pinch to zoom up to 4×, drag to pan, double-tap to reset.</div>
 
@@ -1415,6 +1533,8 @@
             <li><b>✕ remove</b> — deletes the piece (undo brings it back).</li>
             <li><b>⟳ rotate</b> — turns the piece 90° clockwise.</li>
             <li><b>⚓ anchor</b> — pins the piece in place; it becomes immovable static geometry in Test (walls, ramps, ledges).</li>
+            <li><b>🎨 recolor</b> — opens the color wheel to repaint the selected piece in any color; “material color” goes back to the material's own paint. Physics is untouched — only the look changes.</li>
+            <li><b>🅰 edit text</b> <i>(text pieces)</i> — rewords text placed with the text cursor; the piece resizes to hug the new glyphs.</li>
             <li><b>👻 passthrough</b> — (shown when Solid pieces is on) lets the selected piece overlap its neighbours while you position it, drawn as a see-through ghost. New pieces and copies start this way; the moment a ghost loses focus it settles solid, pushed cleanly out of any overlap. Toggle 👻 to slip an already-placed piece through a tight spot.</li>
             <li><b>↔ moving platform</b> — gives the piece a patrol path (drag the ↔ handle to set the far end; it ping-pongs between the two points). Movers matter most in drop &amp; drive.</li>
             <li><b>✎ note</b> — attaches a note: your intent in words. It rides inside the schema so it travels with the level to Claude and back. 🎤 can dictate it.</li>
@@ -1562,6 +1682,39 @@
       <div class="row">
         <button id="ef-none">No effect</button>
         <button id="ef-close" class="accent">Close</button>
+      </div>
+    </div>
+
+    <div class="modal" id="ptmodal">
+      <h2>PAINT TOOLS — double-tap 🖌 paint anytime to switch. Color &amp; size live in the paint row beside the materials.</h2>
+      <div id="ptlist"></div>
+      <div class="row"><button id="pt-close" class="accent">Close</button></div>
+    </div>
+
+    <div class="modal" id="txmodal">
+      <h2 id="txtitle">TEXT — type it and place it. Text is a real physics piece in the current material; recolor it with 🎨.</h2>
+      <div class="row" id="txrow">
+        <input type="text" id="txinput" placeholder="type something…" maxlength="80" />
+      </div>
+      <div class="row">
+        <button id="tx-cancel">Cancel</button>
+        <button id="tx-place" class="accent">Place text</button>
+      </div>
+    </div>
+
+    <div class="modal" id="cmodal">
+      <h2 id="ctitle">COLOR — drag the wheel; the slider sets brightness. “Material color” goes back to the material's own paint.</h2>
+      <div id="cwheelwrap"><canvas id="cwheel" width="240" height="240"></canvas></div>
+      <div class="row" id="cvalrow">
+        <input type="range" id="cval" min="8" max="100" value="100" />
+        <span id="cprev" title="current color"></span>
+        <input type="text" id="chex" spellcheck="false" maxlength="7" title="hex color" />
+      </div>
+      <span class="elbl" id="creclbl">RECENT</span>
+      <div id="crecents"></div>
+      <div class="row">
+        <button id="c-material">material color</button>
+        <button id="c-close" class="accent">Done</button>
       </div>
     </div>
 

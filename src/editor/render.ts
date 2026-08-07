@@ -32,6 +32,17 @@ export interface RenderObject {
   path?: unknown;
   note?: string;
   role?: 'destroy' | 'protect' | 'goal';
+  /** Custom "#rrggbb" paint color overriding the material's base fill. */
+  color?: string;
+  /** Box-only label: the box renders as these glyphs (physics keeps w×h). */
+  text?: string;
+}
+
+/** A text box's font size from its box height — one formula shared with the
+    editor's measurement so the glyphs always fill the physics body. */
+export const TEXT_H_PER_PX = 1.3;
+export function textFont(px: number): string {
+  return `700 ${px}px system-ui,sans-serif`;
 }
 
 function hash(n: number): number {
@@ -46,15 +57,27 @@ export function drawMaterialCtx(
   melt = 1,
 ): void {
   const m = MATERIALS[o.material];
+  // a custom paint color overrides the material's base fill (rendering only)
+  const baseColor = o.color ?? m.color;
   c.save();
   c.translate(o.x, o.y);
   c.rotate((o.angle || 0) / DEG);
   c.globalAlpha = ghost ? 0.45 : o.material === 'ice' ? 0.82 : 1;
-  c.fillStyle = m.color;
+  c.fillStyle = baseColor;
   c.strokeStyle = 'rgba(0,0,0,.35)';
   c.lineWidth = 2;
 
-  if (o.shape === 'box') {
+  if (o.shape === 'box' && o.text) {
+    // a text piece: the glyphs are the visual; physics stays the box's w×h
+    const h = (o.h ?? 0) * melt;
+    const px = Math.max(4, h / TEXT_H_PER_PX);
+    c.font = textFont(px);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.lineWidth = Math.max(1.5, px / 14);
+    c.strokeText(o.text, 0, px * 0.06);
+    c.fillText(o.text, 0, px * 0.06);
+  } else if (o.shape === 'box') {
     const w = (o.w ?? 0) * melt;
     const h = (o.h ?? 0) * melt;
     c.beginPath();
@@ -99,7 +122,14 @@ export function drawMaterialCtx(
       c.lineWidth = 3;
       c.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
       c.fillStyle = 'rgba(50,70,95,.6)';
-      ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const).forEach(([a, b]) => {
+      (
+        [
+          [-1, -1],
+          [1, -1],
+          [-1, 1],
+          [1, 1],
+        ] as const
+      ).forEach(([a, b]) => {
         c.beginPath();
         c.arc(a * (w / 2 - 9), b * (h / 2 - 9), 2.6, 0, 7);
         c.fill();
@@ -128,7 +158,7 @@ export function drawMaterialCtx(
     if (pts.length) {
       for (const [lw, st] of [
         [r * 2 + 5, 'rgba(0,0,0,.35)'],
-        [r * 2, m.color],
+        [r * 2, baseColor],
       ] as Array<[number, string]>) {
         c.strokeStyle = st;
         c.lineWidth = lw;
@@ -149,7 +179,13 @@ export function drawMaterialCtx(
         c.fillStyle = 'rgba(0,0,0,.18)';
         for (let i = 0; i < pts.length; i++) {
           c.beginPath();
-          c.arc(pts[i][0] + (hash(i) - 0.5) * r, pts[i][1] + (hash(i + 3) - 0.5) * r, 1.5 + hash(i) * 2.5, 0, 7);
+          c.arc(
+            pts[i][0] + (hash(i) - 0.5) * r,
+            pts[i][1] + (hash(i + 3) - 0.5) * r,
+            1.5 + hash(i) * 2.5,
+            0,
+            7,
+          );
           c.fill();
         }
       }
@@ -235,7 +271,10 @@ export function drawMaterialCtx(
     // itself is the object). Mode decides tray-vs-flag framing in the runtime.
     c.globalAlpha = ghost ? 0.6 : 1;
     const half = o.shape === 'box' ? (o.h ?? 40) / 2 : (o.r ?? o.w ?? 40) / 1;
-    const fs = Math.max(24, o.shape === 'box' ? Math.min(o.w ?? 44, (o.h ?? 44) * 2) : (o.r ?? 30) * 1.6);
+    const fs = Math.max(
+      24,
+      o.shape === 'box' ? Math.min(o.w ?? 44, (o.h ?? 44) * 2) : (o.r ?? 30) * 1.6,
+    );
     c.font = fs + 'px system-ui,sans-serif';
     c.textAlign = 'center';
     c.textBaseline = 'middle';
@@ -289,7 +328,12 @@ export function drawSlingshotCtx(
 export function renderThumb(
   canvasEl: HTMLCanvasElement,
   lvl: {
-    meta?: { background?: string; backgroundImage?: string | null; backgroundSrc?: string | null; hero?: string };
+    meta?: {
+      background?: string;
+      backgroundImage?: string | null;
+      backgroundSrc?: string | null;
+      hero?: string;
+    };
     world?: { w?: number; h?: number; floorY?: number };
     slingshot: { x: number; y: number };
     objects: RenderObject[];

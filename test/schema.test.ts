@@ -34,7 +34,10 @@ function baseObject(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
-function baseLevel(objects: unknown[] = [], meta: Record<string, unknown> = {}): Record<string, unknown> {
+function baseLevel(
+  objects: unknown[] = [],
+  meta: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     meta: { name: 'x', scene: '', gravity: 1, note: '', ...meta },
@@ -61,28 +64,58 @@ describe('validation — shapes', () => {
       baseObject({ id: 'o2', shape: 'tri', w: 90, h: 70 }),
       baseObject({ id: 'o3', shape: 'circle', w: undefined, h: undefined, r: 20 }),
       baseObject({ id: 'o4', shape: 'emoji', w: undefined, h: undefined, r: 20, emoji: '🎃' }),
-      baseObject({ id: 'o5', shape: 'blob', w: undefined, h: undefined, brushR: 20, pts: [[0, 0], [10, 5], [20, -5]] }),
+      baseObject({
+        id: 'o5',
+        shape: 'blob',
+        w: undefined,
+        h: undefined,
+        brushR: 20,
+        pts: [
+          [0, 0],
+          [10, 5],
+          [20, -5],
+        ],
+      }),
     ]);
     const out = loadLevel(l);
     expect(out.objects).toHaveLength(5);
-    expect(out.objects[4].pts).toEqual([[0, 0], [10, 5], [20, -5]]);
+    expect(out.objects[4].pts).toEqual([
+      [0, 0],
+      [10, 5],
+      [20, -5],
+    ]);
     expect(out.objects[4].brushR).toBe(20);
   });
 
   it('fills the default brush radius for a blob without one', () => {
-    const out = loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0, 0]] })]));
+    const out = loadLevel(
+      baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0, 0]] })]),
+    );
     expect(out.objects[0].brushR).toBe(BRUSH_DEFAULT);
   });
 
   it('rejects an empty blob pts array', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [] })]))).toThrow(/pts/);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [] })])),
+    ).toThrow(/pts/);
+  });
+  it('accepts a dense pencil stroke up to 200 points', () => {
+    const pts = Array.from({ length: 200 }, (_, i) => [i, 0]);
+    const out = loadLevel(
+      baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, brushR: 3, pts })]),
+    );
+    expect(out.objects[0].pts).toHaveLength(200);
   });
   it('rejects a blob with too many points', () => {
-    const pts = Array.from({ length: 71 }, (_, i) => [i, 0]);
-    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts })]))).toThrow(/too many/);
+    const pts = Array.from({ length: 201 }, (_, i) => [i, 0]);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts })])),
+    ).toThrow(/too many/);
   });
   it('rejects malformed blob points', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0]] })]))).toThrow(/\[number, number\]/);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ shape: 'blob', w: undefined, h: undefined, pts: [[0]] })])),
+    ).toThrow(/\[number, number\]/);
   });
 
   it('round-trips through serialize/parse', () => {
@@ -127,7 +160,9 @@ describe('validation — meta', () => {
     expect(out.meta.background).toBe('grid');
   });
   it('keeps custom when an image is present', () => {
-    const out = loadLevel(baseLevel([], { background: 'custom', backgroundImage: 'data:image/png;base64,AA' }));
+    const out = loadLevel(
+      baseLevel([], { background: 'custom', backgroundImage: 'data:image/png;base64,AA' }),
+    );
     expect(out.meta.background).toBe('custom');
     expect(out.meta.backgroundImage).toContain('data:image');
   });
@@ -135,26 +170,92 @@ describe('validation — meta', () => {
 
 describe('validation — v0.8-forward fields', () => {
   it('accepts group strings', () => {
-    const out = loadLevel(baseLevel([baseObject({ group: 'shelf' }), baseObject({ id: 'o2', group: 'shelf' })]));
+    const out = loadLevel(
+      baseLevel([baseObject({ group: 'shelf' }), baseObject({ id: 'o2', group: 'shelf' })]),
+    );
     expect(out.objects[0].group).toBe('shelf');
   });
   it('accepts role only on targets', () => {
-    const out = loadLevel(baseLevel([baseObject({ id: 'o1', shape: 'circle', w: undefined, h: undefined, r: 20, material: 'target', role: 'protect' })]));
+    const out = loadLevel(
+      baseLevel([
+        baseObject({
+          id: 'o1',
+          shape: 'circle',
+          w: undefined,
+          h: undefined,
+          r: 20,
+          material: 'target',
+          role: 'protect',
+        }),
+      ]),
+    );
     expect(out.objects[0].role).toBe('protect');
   });
   it('rejects role on non-target material', () => {
     expect(() => loadLevel(baseLevel([baseObject({ role: 'protect' })]))).toThrow(SchemaError);
   });
   it('accepts sprite and hit', () => {
-    const out = loadLevel(baseLevel([baseObject({ shape: 'emoji', w: undefined, h: undefined, r: 20, emoji: '💣', sprite: 'boom.png', hit: 'explode' })]));
+    const out = loadLevel(
+      baseLevel([
+        baseObject({
+          shape: 'emoji',
+          w: undefined,
+          h: undefined,
+          r: 20,
+          emoji: '💣',
+          sprite: 'boom.png',
+          hit: 'explode',
+        }),
+      ]),
+    );
     expect(out.objects[0].sprite).toBe('boom.png');
     expect(out.objects[0].hit).toBe('explode');
+  });
+  it('accepts a custom color on any shape and preserves it', () => {
+    const out = loadLevel(
+      baseLevel([
+        baseObject({ color: '#4caf50' }),
+        baseObject({
+          id: 'o2',
+          shape: 'blob',
+          w: undefined,
+          h: undefined,
+          pts: [[0, 0]],
+          color: '#FF8A3D',
+        }),
+      ]),
+    );
+    expect(out.objects[0].color).toBe('#4caf50');
+    expect(out.objects[1].color).toBe('#FF8A3D');
+  });
+  it('rejects a malformed color', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ color: 'green' })]))).toThrow(/#rrggbb/);
+    expect(() => loadLevel(baseLevel([baseObject({ color: '#12ab' })]))).toThrow(/#rrggbb/);
+  });
+  it('accepts text on a box and round-trips it', () => {
+    const l = loadLevel(baseLevel([baseObject({ text: 'BONK', color: '#123456' })]));
+    expect(l.objects[0].text).toBe('BONK');
+    expect(parseLevel(serializeLevel(l))).toEqual(l);
+  });
+  it('rejects text on a non-box shape', () => {
+    expect(() =>
+      loadLevel(
+        baseLevel([
+          baseObject({ shape: 'circle', w: undefined, h: undefined, r: 20, text: 'nope' }),
+        ]),
+      ),
+    ).toThrow(/box/);
+  });
+  it('rejects empty text', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ text: '' })]))).toThrow(/non-empty/);
   });
 });
 
 describe('validation — rejections', () => {
   it('rejects duplicate ids', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ id: 'o1' }), baseObject({ id: 'o1' })]))).toThrow(/Duplicate/);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ id: 'o1' }), baseObject({ id: 'o1' })])),
+    ).toThrow(/Duplicate/);
   });
   it('rejects bad id format', () => {
     expect(() => loadLevel(baseLevel([baseObject({ id: 'x1' })]))).toThrow(/o<int>/);
@@ -166,7 +267,9 @@ describe('validation — rejections', () => {
     expect(() => loadLevel(baseLevel([baseObject({ shape: 'hexagon' })]))).toThrow(/shape/);
   });
   it('rejects emoji without glyph', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ shape: 'emoji', w: undefined, h: undefined, r: 20 })]))).toThrow(/emoji/);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ shape: 'emoji', w: undefined, h: undefined, r: 20 })])),
+    ).toThrow(/emoji/);
   });
   it('rejects floorY out of range', () => {
     const l = baseLevel([]);
@@ -185,7 +288,9 @@ describe('migration', () => {
       meta: { name: 'old', scene: '', gravity: 1 },
       world: { w: 1600, h: 900, floorY: 860 },
       slingshot: { x: 230, y: 770 },
-      objects: [{ id: 'o1', shape: 'box', x: 100, y: 100, w: 40, h: 40, angle: 0, material: 'wood' }],
+      objects: [
+        { id: 'o1', shape: 'box', x: 100, y: 100, w: 40, h: 40, angle: 0, material: 'wood' },
+      ],
     };
     const out = validateLevel(migrateToCurrent(old));
     expect(out.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
@@ -277,11 +382,26 @@ describe('role: goal (drop/drive goal zones)', () => {
     expect(out.objects[0].role).toBe('goal');
   });
   it('accepts goal on a target too', () => {
-    const out = loadLevel(baseLevel([baseObject({ id: 'o1', shape: 'circle', w: undefined, h: undefined, r: 20, material: 'target', emoji: undefined, role: 'goal' })]));
+    const out = loadLevel(
+      baseLevel([
+        baseObject({
+          id: 'o1',
+          shape: 'circle',
+          w: undefined,
+          h: undefined,
+          r: 20,
+          material: 'target',
+          emoji: undefined,
+          role: 'goal',
+        }),
+      ]),
+    );
     expect(out.objects[0].role).toBe('goal');
   });
   it('still rejects destroy/protect on non-target material', () => {
-    expect(() => loadLevel(baseLevel([baseObject({ material: 'stone', role: 'protect' })]))).toThrow(/target/);
+    expect(() =>
+      loadLevel(baseLevel([baseObject({ material: 'stone', role: 'protect' })])),
+    ).toThrow(/target/);
   });
   it('rejects an unknown role', () => {
     expect(() => loadLevel(baseLevel([baseObject({ role: 'win' })]))).toThrow(/role/);
@@ -289,12 +409,46 @@ describe('role: goal (drop/drive goal zones)', () => {
   it('round-trips the drop fixture unchanged apart from filled defaults', () => {
     const fixture = {
       schemaVersion: '0.8',
-      meta: { name: 'first-descent', scene: 'demo', gravity: 1, note: '', hero: '🙂', mode: 'drop', background: 'night', backgroundImage: null },
+      meta: {
+        name: 'first-descent',
+        scene: 'demo',
+        gravity: 1,
+        note: '',
+        hero: '🙂',
+        mode: 'drop',
+        background: 'night',
+        backgroundImage: null,
+      },
       world: { w: 900, h: 1600, floorY: 1560 },
       slingshot: { x: 140, y: 110 },
       objects: [
-        { id: 'o1', shape: 'box', x: 260, y: 300, w: 420, h: 22, angle: 12, material: 'wood', anchored: true, path: null, note: '' },
-        { id: 'o9', shape: 'box', x: 450, y: 1548, w: 240, h: 24, angle: 0, material: 'stone', anchored: true, path: null, note: 'catch tray', role: 'goal' },
+        {
+          id: 'o1',
+          shape: 'box',
+          x: 260,
+          y: 300,
+          w: 420,
+          h: 22,
+          angle: 12,
+          material: 'wood',
+          anchored: true,
+          path: null,
+          note: '',
+        },
+        {
+          id: 'o9',
+          shape: 'box',
+          x: 450,
+          y: 1548,
+          w: 240,
+          h: 24,
+          angle: 0,
+          material: 'stone',
+          anchored: true,
+          path: null,
+          note: 'catch tray',
+          role: 'goal',
+        },
       ],
     };
     const out = loadLevel(fixture);
@@ -348,7 +502,9 @@ describe('floor healing on load (enforceFloor)', () => {
 
 describe('maxIdNum', () => {
   it('finds the highest numeric id suffix', () => {
-    const l = loadLevel(baseLevel([baseObject({ id: 'o3' }), baseObject({ id: 'o17' }), baseObject({ id: 'o2' })])) as Level;
+    const l = loadLevel(
+      baseLevel([baseObject({ id: 'o3' }), baseObject({ id: 'o17' }), baseObject({ id: 'o2' })]),
+    ) as Level;
     expect(maxIdNum(l)).toBe(17);
   });
 });

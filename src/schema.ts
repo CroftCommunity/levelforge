@@ -8,7 +8,7 @@
    and fills defaults; never break the paste-and-load loop.
 
    Current schema: v0.8 (matches reference/levelforge.html forge v0.12).
-   The optional group/role/sprite/hit/backgroundSrc fields are v0.8:
+   The optional group/role/sprite/hit/color/text/backgroundSrc fields are v0.8:
    accepted and preserved so levels authored against v0.8 round-trip, and so
    the already-shipped weld/protect behavior keeps working.
 
@@ -58,9 +58,24 @@ export type BackgroundKind = 'grid' | 'grass' | 'cave' | 'desert' | 'night' | 's
 export type ModeKind = 'slingshot' | 'drop' | 'drive';
 export const MODES: ModeKind[] = ['slingshot', 'drop', 'drive'];
 
-export const BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky', 'custom'];
+export const BACKGROUNDS: BackgroundKind[] = [
+  'grid',
+  'grass',
+  'cave',
+  'desert',
+  'night',
+  'sky',
+  'custom',
+];
 /** Procedural (non-custom) backgrounds — those that need no image. */
-export const PROCEDURAL_BACKGROUNDS: BackgroundKind[] = ['grid', 'grass', 'cave', 'desert', 'night', 'sky'];
+export const PROCEDURAL_BACKGROUNDS: BackgroundKind[] = [
+  'grid',
+  'grass',
+  'cave',
+  'desert',
+  'night',
+  'sky',
+];
 
 export interface PathDef {
   x: number;
@@ -104,6 +119,13 @@ export interface LevelObject {
       in Test (pop/explode/shatter/splash/confetti). Unknown keys = no effect;
       "none" explicitly suppresses an effect the glyph would otherwise imply. */
   hit?: string;
+  /** v0.8-forward: custom paint color ("#rrggbb") overriding the material's
+      base fill. Rendering only — physics still comes from the material. */
+  color?: string;
+  /** v0.8-forward: box-only label string. A box carrying text renders as the
+      glyphs themselves (in `color` or the material color) while physics keeps
+      the box's w×h. The forge's text cursor writes these. */
+  text?: string;
 }
 
 export interface LevelMeta {
@@ -299,13 +321,20 @@ function req(cond: boolean, msg: string): asserts cond {
 
 const ID_RE = /^o\d+$/;
 const SHAPES: ShapeKind[] = ['box', 'circle', 'tri', 'emoji', 'blob'];
-const MAX_BLOB_PTS = 70;
+// 200, not 70: the pencil records fine strokes far denser than the brush, and
+// its lines would truncate at 70. Raising a max is forgiving — every old level
+// still loads.
+const MAX_BLOB_PTS = 200;
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 function validateBlobPts(v: unknown, where: string): BlobPoint[] {
   req(Array.isArray(v) && v.length >= 1, `${where} (blob) needs a non-empty "pts" array.`);
   req(v.length <= MAX_BLOB_PTS, `${where} (blob) has too many points (max ${MAX_BLOB_PTS}).`);
   return (v as unknown[]).map((p, i) => {
-    req(Array.isArray(p) && p.length === 2 && isFiniteNum(p[0]) && isFiniteNum(p[1]), `${where}.pts[${i}] must be [number, number].`);
+    req(
+      Array.isArray(p) && p.length === 2 && isFiniteNum(p[0]) && isFiniteNum(p[1]),
+      `${where}.pts[${i}] must be [number, number].`,
+    );
     return [p[0] as number, p[1] as number];
   });
 }
@@ -315,7 +344,10 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
   req(o != null && typeof o === 'object', `${where} must be an object.`);
   const obj = o as Loose;
 
-  req(typeof obj.id === 'string' && ID_RE.test(obj.id), `${where}.id must match "o<int>" (e.g. "o1").`);
+  req(
+    typeof obj.id === 'string' && ID_RE.test(obj.id),
+    `${where}.id must match "o<int>" (e.g. "o1").`,
+  );
   req(!seen.has(obj.id), `Duplicate object id "${obj.id}".`);
   seen.add(obj.id);
 
@@ -354,37 +386,73 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
     out.r = obj.r;
   }
   if (shape === 'emoji') {
-    req(typeof obj.emoji === 'string' && [...obj.emoji].length >= 1, `${where} (emoji) needs a non-empty "emoji" glyph.`);
+    req(
+      typeof obj.emoji === 'string' && [...obj.emoji].length >= 1,
+      `${where} (emoji) needs a non-empty "emoji" glyph.`,
+    );
     out.emoji = obj.emoji;
   }
 
   if (obj.path != null) {
     req(typeof obj.path === 'object', `${where}.path must be null or an object.`);
     req(isFiniteNum(obj.path.x) && isFiniteNum(obj.path.y), `${where}.path needs finite x and y.`);
-    req(isFiniteNum(obj.path.speed) && obj.path.speed > 0, `${where}.path.speed must be a positive number.`);
+    req(
+      isFiniteNum(obj.path.speed) && obj.path.speed > 0,
+      `${where}.path.speed must be a positive number.`,
+    );
     out.path = { x: obj.path.x, y: obj.path.y, speed: obj.path.speed };
   }
 
   // v0.8-forward optional fields
   if (obj.group != null) {
-    req(typeof obj.group === 'string' && obj.group.length > 0, `${where}.group must be a non-empty string.`);
+    req(
+      typeof obj.group === 'string' && obj.group.length > 0,
+      `${where}.group must be a non-empty string.`,
+    );
     out.group = obj.group;
   }
   if (obj.role != null) {
-    req(obj.role === 'destroy' || obj.role === 'protect' || obj.role === 'goal', `${where}.role must be "destroy", "protect", or "goal".`);
+    req(
+      obj.role === 'destroy' || obj.role === 'protect' || obj.role === 'goal',
+      `${where}.role must be "destroy", "protect", or "goal".`,
+    );
     // destroy/protect are target-only; goal marks any object as a goal zone.
     if (obj.role === 'destroy' || obj.role === 'protect') {
-      req(obj.material === 'target', `${where}.role "${obj.role}" is only valid on target material.`);
+      req(
+        obj.material === 'target',
+        `${where}.role "${obj.role}" is only valid on target material.`,
+      );
     }
     out.role = obj.role;
   }
   if (obj.sprite != null) {
-    req(typeof obj.sprite === 'string' && obj.sprite.length > 0, `${where}.sprite must be a non-empty string.`);
+    req(
+      typeof obj.sprite === 'string' && obj.sprite.length > 0,
+      `${where}.sprite must be a non-empty string.`,
+    );
     out.sprite = obj.sprite;
   }
   if (obj.hit != null) {
-    req(typeof obj.hit === 'string' && obj.hit.length > 0, `${where}.hit must be a non-empty string.`);
+    req(
+      typeof obj.hit === 'string' && obj.hit.length > 0,
+      `${where}.hit must be a non-empty string.`,
+    );
     out.hit = obj.hit;
+  }
+  if (obj.color != null) {
+    req(
+      typeof obj.color === 'string' && COLOR_RE.test(obj.color),
+      `${where}.color must be a "#rrggbb" hex string.`,
+    );
+    out.color = obj.color;
+  }
+  if (obj.text != null) {
+    req(shape === 'box', `${where}.text is only valid on box shapes.`);
+    req(
+      typeof obj.text === 'string' && obj.text.length > 0,
+      `${where}.text must be a non-empty string.`,
+    );
+    out.text = obj.text;
   }
   return out;
 }
@@ -396,8 +464,11 @@ export function validateLevel(input: unknown): Level {
 
   const meta = l.meta ?? {};
   req(typeof meta === 'object', 'meta must be an object.');
-  const background = BACKGROUNDS.includes(meta.background) ? (meta.background as BackgroundKind) : 'grid';
-  const mode: ModeKind = meta.mode === 'drive' ? 'drive' : meta.mode === 'drop' ? 'drop' : 'slingshot';
+  const background = BACKGROUNDS.includes(meta.background)
+    ? (meta.background as BackgroundKind)
+    : 'grid';
+  const mode: ModeKind =
+    meta.mode === 'drive' ? 'drive' : meta.mode === 'drop' ? 'drop' : 'slingshot';
   let goal: GoalDef | null = null;
   if (meta.goal != null) {
     req(typeof meta.goal === 'object', 'meta.goal must be null or an object.');
@@ -416,7 +487,8 @@ export function validateLevel(input: unknown): Level {
     mode,
     goal,
   };
-  if (typeof meta.backgroundSrc === 'string' && meta.backgroundSrc) cleanMeta.backgroundSrc = meta.backgroundSrc;
+  if (typeof meta.backgroundSrc === 'string' && meta.backgroundSrc)
+    cleanMeta.backgroundSrc = meta.backgroundSrc;
   if (isFiniteNum(meta.bounce)) cleanMeta.bounce = Math.max(0, Math.min(1, meta.bounce));
 
   const world = l.world ?? {};
