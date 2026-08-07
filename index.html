@@ -7,7 +7,10 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Emoji Wars · forge · schema v0.7</title>
-    <meta name="description" content="Touch-first 2D physics game and level forge for human-and-Claude collaboration." />
+    <meta
+      name="description"
+      content="Touch-first 2D physics game and level forge for human-and-Claude collaboration."
+    />
     <meta name="theme-color" content="#0f1722" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -27,7 +30,8 @@
         } catch (e) {
           /* fall through to dark */
         }
-        if (t === 'auto') t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        if (t === 'auto')
+          t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.dataset.theme = t;
       })();
     </script>
@@ -707,7 +711,8 @@
       body:not(.land) #selwrap > .row:last-of-type {
         margin-bottom: 0;
       }
-      #eflist {
+      #eflist,
+      #ptlist {
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -744,6 +749,137 @@
       .efopt .efblurb {
         color: var(--dim);
         font-size: 12px;
+      }
+      /* paint row: tool / color / 3-panel size selector (shown while painting) */
+      #paintrow {
+        gap: 6px;
+      }
+      #pt-tool {
+        font-size: 16px;
+        padding: 4px 10px;
+        height: 34px;
+      }
+      #pt-color {
+        padding: 3px;
+        height: 34px;
+      }
+      #pt-colorsw {
+        display: block;
+        width: 28px;
+        height: 26px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.4);
+      }
+      .szsel {
+        display: flex;
+        gap: 4px;
+      }
+      .szbtn {
+        width: 36px;
+        height: 34px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .szbtn i {
+        display: block;
+        border-radius: 50%;
+        background: var(--ink);
+      }
+      .szbtn[data-sz='0'] i {
+        width: 5px;
+        height: 5px;
+      }
+      .szbtn[data-sz='1'] i {
+        width: 10px;
+        height: 10px;
+      }
+      .szbtn[data-sz='2'] i {
+        width: 17px;
+        height: 17px;
+      }
+      .szbtn.on {
+        border-color: var(--accent);
+        background: var(--on-bg);
+      }
+      .pttg {
+        font-size: 15px;
+        padding: 4px 8px;
+        height: 34px;
+      }
+      .pttg.on {
+        border-color: var(--accent);
+        background: var(--on-bg);
+      }
+      #calpharow {
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+      }
+      #calpha {
+        flex: 1;
+        max-width: 200px;
+      }
+      #calphaval {
+        min-width: 3em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: var(--dim);
+        font-size: 12px;
+      }
+      /* color wheel popup */
+      #cwheelwrap {
+        display: flex;
+        justify-content: center;
+        flex: none;
+      }
+      #cwheel {
+        width: min(240px, 64vw);
+        height: auto;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      #cvalrow {
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+      }
+      #cval {
+        flex: 1;
+        max-width: 220px;
+      }
+      #cprev {
+        width: 34px;
+        height: 28px;
+        border-radius: 8px;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+        flex: none;
+      }
+      #chex {
+        width: 92px;
+        text-align: center;
+      }
+      #crecents {
+        display: flex;
+        gap: 6px;
+        justify-content: center;
+        flex: none;
+        min-height: 28px;
+      }
+      #crecents button {
+        width: 36px;
+        height: 28px;
+        padding: 0;
+        border-radius: 8px;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+      }
+      #cmodal .row:last-of-type {
+        justify-content: center;
+      }
+      #txinput {
+        flex: 1;
+        font-size: 20px;
       }
       #readout {
         font-size: 10.5px;
@@ -1296,7 +1432,9 @@
   <body>
     <div id="topbar">
       <div class="brand">
-        <button id="b-home" title="back to levels" aria-label="back to levels"><b>EMOJI WARS</b></button><span><br />forge · schema v0.8</span>
+        <button id="b-home" title="back to levels" aria-label="back to levels">
+          <b>EMOJI WARS</b></button
+        ><span><br />forge · schema v0.8</span>
       </div>
       <button id="b-rot" title="rotate selection / flip stamp">⟳</button>
       <button id="b-view" title="pan &amp; zoom">🔍</button>
@@ -1305,13 +1443,25 @@
       <div id="menu" role="menu" aria-hidden="true">
         <label class="menu-toggle">
           <input type="checkbox" id="autosave-chk" />
-          <span>Autosave<small>keeps this level and its full undo history in this browser — works offline</small></span>
+          <span
+            >Autosave<small
+              >keeps this level and its full undo history in this browser — works offline</small
+            ></span
+          >
         </label>
         <div class="menu-sep"></div>
-        <button id="b-lib" class="menu-item" role="menuitem" title="library">💾&nbsp; Library &amp; save</button>
-        <button id="b-schema" class="menu-item" role="menuitem" title="lexicon">{ }&nbsp; Lexicon</button>
-        <button id="b-set" class="menu-item" role="menuitem" title="settings">⚙&nbsp; Settings</button>
-        <button id="b-help" class="menu-item" role="menuitem" title="how it works">💡&nbsp; How it works</button>
+        <button id="b-lib" class="menu-item" role="menuitem" title="library">
+          💾&nbsp; Library &amp; save
+        </button>
+        <button id="b-schema" class="menu-item" role="menuitem" title="lexicon">
+          { }&nbsp; Lexicon
+        </button>
+        <button id="b-set" class="menu-item" role="menuitem" title="settings">
+          ⚙&nbsp; Settings
+        </button>
+        <button id="b-help" class="menu-item" role="menuitem" title="how it works">
+          💡&nbsp; How it works
+        </button>
       </div>
     </div>
 
@@ -1319,13 +1469,29 @@
       <div id="stage">
         <canvas id="cv"></canvas>
         <button id="undo" class="cornerbtn cornerbtn-l" title="undo" aria-label="undo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <path d="M4.5 9.5h8a5.5 5.5 0 0 1 0 11h-4" />
             <path d="M8.5 5.5l-4 4 4 4" />
           </svg>
         </button>
         <button id="redo" class="cornerbtn cornerbtn-r" title="redo" aria-label="redo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
             <path d="M19.5 9.5h-8a5.5 5.5 0 0 0 0 11h4" />
             <path d="M15.5 5.5l4 4-4 4" />
           </svg>
@@ -1358,13 +1524,49 @@
       <div id="tray"></div>
 
       <div id="inspector">
+        <div class="row" id="paintrow" style="display: none">
+          <button id="pt-tool" title="paint tool — tap to switch (brush / pencil / text)">🖌</button>
+          <button id="pt-color" title="stroke color — tap for the color wheel">
+            <span id="pt-colorsw"></span>
+          </button>
+          <span class="szsel" title="stroke size">
+            <button class="szbtn" data-sz="0" title="small"><i></i></button>
+            <button class="szbtn" data-sz="1" title="medium"><i></i></button>
+            <button class="szbtn" data-sz="2" title="large"><i></i></button>
+          </span>
+          <button id="pt-line" class="pttg" title="ruler — strokes become straight lines">
+            📏
+          </button>
+          <button id="pt-fill" class="pttg" title="fill — close the stroke and flood its interior">
+            🪣
+          </button>
+          <button
+            id="pt-mirror"
+            class="pttg"
+            title="mirror — paint both sides of the board's centerline"
+          >
+            🪞
+          </button>
+        </div>
         <div class="row" id="matrow">
-          <span class="swwrap" data-m="wood"><span class="sw" style="background: var(--wood)"></span><span>wood</span></span>
-          <span class="swwrap" data-m="stone"><span class="sw" style="background: var(--stone)"></span><span>stone</span></span>
-          <span class="swwrap" data-m="metal"><span class="sw" style="background: var(--metal)"></span><span>metal</span></span>
-          <span class="swwrap" data-m="ice"><span class="sw" style="background: var(--ice)"></span><span>ice</span></span>
-          <span class="swwrap" data-m="rubber"><span class="sw" style="background: var(--rubber)"></span><span>rubber</span></span>
-          <span class="swwrap" data-m="target"><span class="sw" style="background: var(--target)"></span><span>target</span></span>
+          <span class="swwrap" data-m="wood"
+            ><span class="sw" style="background: var(--wood)"></span><span>wood</span></span
+          >
+          <span class="swwrap" data-m="stone"
+            ><span class="sw" style="background: var(--stone)"></span><span>stone</span></span
+          >
+          <span class="swwrap" data-m="metal"
+            ><span class="sw" style="background: var(--metal)"></span><span>metal</span></span
+          >
+          <span class="swwrap" data-m="ice"
+            ><span class="sw" style="background: var(--ice)"></span><span>ice</span></span
+          >
+          <span class="swwrap" data-m="rubber"
+            ><span class="sw" style="background: var(--rubber)"></span><span>rubber</span></span
+          >
+          <span class="swwrap" data-m="target"
+            ><span class="sw" style="background: var(--target)"></span><span>target</span></span
+          >
         </div>
         <div id="selwrap" style="display: none">
           <div id="selgrip" title="drag to move these controls"></div>
@@ -1375,13 +1577,42 @@
           <div class="row" id="selchips">
             <span class="chip tgl" id="tg-rot" title="rotate 90°">⟳</span>
             <span class="chip tgl" id="tg-anchor" title="fixed in place">⚓</span>
-            <span class="chip tgl" id="tg-pass" title="passthrough — may overlap while selected; settles solid on losing focus">👻</span>
+            <span
+              class="chip tgl"
+              id="tg-pass"
+              title="passthrough — may overlap while selected; settles solid on losing focus"
+              >👻</span
+            >
             <span class="chip tgl" id="tg-move" title="moving platform">↔</span>
+            <span class="chip tgl" id="tg-color" title="recolor this piece — opens the color wheel"
+              >🎨</span
+            >
+            <span class="chip tgl" id="tg-text" title="edit this text" style="display: none"
+              >🅰</span
+            >
+            <span class="chip tgl" id="tg-front" title="bring to front (draws over its overlaps)"
+              >⤒</span
+            >
+            <span class="chip tgl" id="tg-back" title="send to back (draws under its overlaps)"
+              >⤓</span
+            >
             <span class="chip tgl" id="tg-note" title="attach intent note">✎</span>
-            <span class="chip tgl" id="tg-weld" title="weld to the previously selected piece">🔗</span>
-            <span class="chip tgl" id="tg-sprite" title="custom image skin" style="display: none">🖼️</span>
-            <span class="chip tgl" id="tg-protect" title="protect target (hostage)" style="display: none">🛡️</span>
-            <span class="chip tgl" id="tg-effect" title="hit effect (emoji)" style="display: none">✨</span>
+            <span class="chip tgl" id="tg-weld" title="weld to the previously selected piece"
+              >🔗</span
+            >
+            <span class="chip tgl" id="tg-sprite" title="custom image skin" style="display: none"
+              >🖼️</span
+            >
+            <span
+              class="chip tgl"
+              id="tg-protect"
+              title="protect target (hostage)"
+              style="display: none"
+              >🛡️</span
+            >
+            <span class="chip tgl" id="tg-effect" title="hit effect (emoji)" style="display: none"
+              >✨</span
+            >
             <span class="chip tgl" id="tg-goal" title="goal zone (drop tray / drive flag)">🏁</span>
           </div>
           <div class="row"><span id="readout"></span></div>
@@ -1393,62 +1624,188 @@
     <div class="modal" id="hmodal">
       <h2>EMOJI WARS — HOW IT WORKS</h2>
       <div id="helpbody">
-        <div class="sect"><b>The idea.</b> Build a level, then play it in one of three modes. In <b>slingshot</b> (the default) you fling your hero emoji at the villains — emoji stamped in <b>target</b> material — and break them all to clear the level.</div>
-        <div class="sect"><b>Placing.</b> Arm a shape in the tray, tap the board to stamp it in the current material. 🖌 paint is different: drag to color in a freeform blob — it becomes one solid piece.</div>
-        <div class="sect"><b>Adjusting (✋).</b> Tap a piece to select. Drag to move — it lifts above your finger and edges magnet-snap flush (blobs skip the magnet). Pinch resizes. Drag a <b>corner grab</b> of the dashed guide box to free-rotate — it soft-snaps to 15° so decline ramps are easy to dial in. Twist or ⟳ rotates too. The arrow pad nudges one grid square per tap.</div>
-        <div class="sect"><b>Looking (🔍).</b> Toggle 🔍, then pinch to zoom up to 4×, drag to pan, double-tap to reset.</div>
+        <div class="sect">
+          <b>The idea.</b> Build a level, then play it in one of three modes. In
+          <b>slingshot</b> (the default) you fling your hero emoji at the villains — emoji stamped
+          in <b>target</b> material — and break them all to clear the level.
+        </div>
+        <div class="sect">
+          <b>Placing.</b> Arm a shape in the tray, tap the board to stamp it in the current
+          material. 🖌 paint is different: drag to color in a freeform blob — it becomes one solid
+          piece. <b>Double-tap 🖌</b> to switch tools: the paint brush, a ✏️ pencil for fine lines, a
+          text cursor that places typed words as real physics pieces, or a 🧽 eraser that scrubs
+          paint and text away (other pieces are safe). While painting, the paint row beside the
+          materials holds the tool, a color swatch (tap for the 🎨 color wheel — opacity slider, 💧
+          eyedropper, and your last 5 colors quick-saved), a three-size selector, and three stroke
+          toggles: <b>📏 ruler</b> makes strokes perfectly straight, <b>🪣 fill</b> closes the
+          stroke and floods its interior, and <b>🪞 mirror</b> paints both sides of the board's
+          centerline at once. Freehand strokes get a light smoothing pass so jitter disappears.
+        </div>
+        <div class="sect">
+          <b>Adjusting (✋).</b> Tap a piece to select. Drag to move — it lifts above your finger
+          and edges magnet-snap flush (blobs skip the magnet). Pinch resizes. Drag a
+          <b>corner grab</b> of the dashed guide box to free-rotate — it soft-snaps to 15° so
+          decline ramps are easy to dial in. Twist or ⟳ rotates too. The arrow pad nudges one grid
+          square per tap.
+        </div>
+        <div class="sect">
+          <b>Looking (🔍).</b> Toggle 🔍, then pinch to zoom up to 4×, drag to pan, double-tap to
+          reset.
+        </div>
 
-        <div class="sect"><b>MATERIALS</b> — the swatch row picks the material a new piece is stamped in (and re-materials the selected piece). Material carries all the physics; shape is separate.
+        <div class="sect">
+          <b>MATERIALS</b> — the swatch row picks the material a new piece is stamped in (and
+          re-materials the selected piece). Material carries all the physics; shape is separate.
           <ul>
             <li><b>wood</b> — light; breaks under a firm hit.</li>
             <li><b>stone</b> — heavy; barely breaks (needs a hard hit).</li>
             <li><b>metal</b> — heaviest; <i>never</i> breaks.</li>
             <li><b>ice</b> — slippery, and <i>melts away during Test</i>.</li>
             <li><b>rubber</b> — bouncy; never breaks.</li>
-            <li><b>target</b> — fragile green; this is the villain material — the thing to destroy. Emoji stamped in target are your villains.</li>
+            <li>
+              <b>target</b> — fragile green; this is the villain material — the thing to destroy.
+              Emoji stamped in target are your villains.
+            </li>
           </ul>
         </div>
 
-        <div class="sect"><b>THE SELECTED PIECE</b> — tap a piece to select it; its controls appear in the inspector.
+        <div class="sect">
+          <b>THE SELECTED PIECE</b> — tap a piece to select it; its controls appear in the
+          inspector.
           <ul>
-            <li><b>⧉ copy</b> — duplicates the piece right next to itself, carrying <i>every</i> attribute with it (material, angle, size, ⚓ anchor, ↔ path, ✎ note, 🔗 weld, 🖼️ sprite, 🛡️ role, and its ✨ hit effect). The copy is selected and spawns as a 👻 passthrough ghost so it can be dragged out of the overlap instead of being trapped in it.</li>
+            <li>
+              <b>⧉ copy</b> — duplicates the piece right next to itself, carrying
+              <i>every</i> attribute with it (material, angle, size, ⚓ anchor, ↔ path, ✎ note, 🔗
+              weld, 🖼️ sprite, 🛡️ role, and its ✨ hit effect). The copy is selected and spawns as a
+              👻 passthrough ghost so it can be dragged out of the overlap instead of being trapped
+              in it.
+            </li>
             <li><b>✕ remove</b> — deletes the piece (undo brings it back).</li>
             <li><b>⟳ rotate</b> — turns the piece 90° clockwise.</li>
-            <li><b>⚓ anchor</b> — pins the piece in place; it becomes immovable static geometry in Test (walls, ramps, ledges).</li>
-            <li><b>👻 passthrough</b> — (shown when Solid pieces is on) lets the selected piece overlap its neighbours while you position it, drawn as a see-through ghost. New pieces and copies start this way; the moment a ghost loses focus it settles solid, pushed cleanly out of any overlap. Toggle 👻 to slip an already-placed piece through a tight spot.</li>
-            <li><b>↔ moving platform</b> — gives the piece a patrol path (drag the ↔ handle to set the far end; it ping-pongs between the two points). Movers matter most in drop &amp; drive.</li>
-            <li><b>✎ note</b> — attaches a note: your intent in words. It rides inside the schema so it travels with the level to Claude and back. 🎤 can dictate it.</li>
-            <li><b>🔗 weld</b> — fuses this piece to the piece you selected just before it, so they move as one rigid body in Test. Tap one piece, then another, then 🔗. Tap 🔗 again to unweld. (A painted blob is already one welded piece.)</li>
-            <li><b>🖼️ sprite</b> <i>(emoji only)</i> — skins the emoji with your own uploaded image instead of the glyph. Tap again to remove and go back to the glyph.</li>
-            <li><b>🛡️ shield / protect</b> <i>(target only)</i> — turns a villain into a <b>hostage</b>: a piece you must <i>not</i> destroy. If any protected target breaks, the level fails. Use it to force careful aim. Off = an ordinary destroy-me villain.</li>
-            <li><b>✨ hit effect</b> <i>(emoji only)</i> — picks what the emoji does the moment it's destroyed in Test (see EFFECTS below). Tap to open the picker.</li>
-            <li><b>🏁 goal / flag</b> — marks <i>any</i> piece as the goal zone: the catch tray to land in for <b>drop</b>, the flag to reach for <b>drive</b>. Tap again to clear it.</li>
+            <li>
+              <b>⚓ anchor</b> — pins the piece in place; it becomes immovable static geometry in
+              Test (walls, ramps, ledges).
+            </li>
+            <li>
+              <b>🎨 recolor</b> — opens the color wheel to repaint the selected piece in any color;
+              “material color” goes back to the material's own paint. Physics is untouched — only
+              the look changes.
+            </li>
+            <li>
+              <b>🅰 edit text</b> <i>(text pieces)</i> — rewords text placed with the text cursor;
+              the piece resizes to hug the new glyphs.
+            </li>
+            <li>
+              <b>⤒ / ⤓ front &amp; back</b> — moves the piece over or under whatever it overlaps
+              (draw order); physics is unaffected.
+            </li>
+            <li>
+              <b>👻 passthrough</b> — (shown when Solid pieces is on) lets the selected piece
+              overlap its neighbours while you position it, drawn as a see-through ghost. New pieces
+              and copies start this way; the moment a ghost loses focus it settles solid, pushed
+              cleanly out of any overlap. Toggle 👻 to slip an already-placed piece through a tight
+              spot.
+            </li>
+            <li>
+              <b>↔ moving platform</b> — gives the piece a patrol path (drag the ↔ handle to set the
+              far end; it ping-pongs between the two points). Movers matter most in drop &amp;
+              drive.
+            </li>
+            <li>
+              <b>✎ note</b> — attaches a note: your intent in words. It rides inside the schema so
+              it travels with the level to Claude and back. 🎤 can dictate it.
+            </li>
+            <li>
+              <b>🔗 weld</b> — fuses this piece to the piece you selected just before it, so they
+              move as one rigid body in Test. Tap one piece, then another, then 🔗. Tap 🔗 again to
+              unweld. (A painted blob is already one welded piece.)
+            </li>
+            <li>
+              <b>🖼️ sprite</b> <i>(emoji only)</i> — skins the emoji with your own uploaded image
+              instead of the glyph. Tap again to remove and go back to the glyph.
+            </li>
+            <li>
+              <b>🛡️ shield / protect</b> <i>(target only)</i> — turns a villain into a
+              <b>hostage</b>: a piece you must <i>not</i> destroy. If any protected target breaks,
+              the level fails. Use it to force careful aim. Off = an ordinary destroy-me villain.
+            </li>
+            <li>
+              <b>✨ hit effect</b> <i>(emoji only)</i> — picks what the emoji does the moment it's
+              destroyed in Test (see EFFECTS below). Tap to open the picker.
+            </li>
+            <li>
+              <b>🏁 goal / flag</b> — marks <i>any</i> piece as the goal zone: the catch tray to
+              land in for <b>drop</b>, the flag to reach for <b>drive</b>. Tap again to clear it.
+            </li>
           </ul>
-          The <b>readout</b> under the controls shows the selected piece's position, size, and angle. The <b>arrow pad</b> in the corner nudges it one grid square per tap.
+          The <b>readout</b> under the controls shows the selected piece's position, size, and
+          angle. The <b>arrow pad</b> in the corner nudges it one grid square per tap.
         </div>
 
-        <div class="sect"><b>EFFECTS (✨)</b> — a hit effect fires the instant an emoji is destroyed in Test (when your hero smashes it). Purely for flair, except <b>explode</b>, which also shoves and chain-detonates neighbours. A copied piece keeps its effect, so you can build a whole cluster of poppers or bombs from one.
+        <div class="sect">
+          <b>EFFECTS (✨)</b> — a hit effect fires the instant an emoji is destroyed in Test (when
+          your hero smashes it). Purely for flair, except <b>explode</b>, which also shoves and
+          chain-detonates neighbours. A copied piece keeps its effect, so you can build a whole
+          cluster of poppers or bombs from one.
           <ul>
             <li><b>🫧 pop</b> — vanishes in a quick bubble-pop puff of light specks.</li>
-            <li><b>💥 explode</b> — a blast that shoves nearby pieces and detonates breakable neighbours; chain reactions emerge. 💣 / 🧨 use this by default.</li>
-            <li><b>🧩 break apart</b> — shatters into tumbling shards (in its material colour) that fall and fade.</li>
+            <li>
+              <b>💥 explode</b> — a blast that shoves nearby pieces and detonates breakable
+              neighbours; chain reactions emerge. 💣 / 🧨 use this by default.
+            </li>
+            <li>
+              <b>🧩 break apart</b> — shatters into tumbling shards (in its material colour) that
+              fall and fade.
+            </li>
             <li><b>💧 splash</b> — bursts into droplets that arc up and rain down.</li>
             <li><b>🎉 confetti</b> — erupts into a shower of colourful confetti strips.</li>
           </ul>
-          An emoji with an effect will break on a solid hit even in a material that normally never breaks, so the effect can play.
+          An emoji with an effect will break on a solid hit even in a material that normally never
+          breaks, so the effect can play.
         </div>
 
-        <div class="sect"><b>Modes (⚙ Settings).</b> Settings cycles the mode: <b>slingshot</b> → <b>drop</b> → <b>drive</b>. In <b>drop</b> the hero spawns at the start pad and falls; <b>tap anywhere to hop</b>, but only while it's resting on something (or a split-second after rolling off an edge). Villains are hazards — touching one flashes red and restarts you at the top (an attempt counter ticks up; nothing is destroyed). Reach the 🏁 goal (a catch tray) to clear. <b>Drive</b> (Red Ball) gives you on-screen ◀ ▶ and a jump to steer the hero to the 🏁 goal; villains are lethal there too. Drop and drive never break pieces — but ice still melts.</div>
-        <div class="sect"><b>World shape (⚙ Settings).</b> A level's size is part of its data: <b>wide</b> 1600×900 or <b>tall</b> 900×1600 (tall suits drop and portrait play). Switching keeps every object where it sits and just flags how many pieces landed out of bounds — nudge them back in. Backdrops, the floor, zoom-to-fit and the agent brief all follow the level's shape.</div>
-        <div class="sect"><b>Backdrops (⚙ Settings).</b> The backdrop lives in Settings so it doesn't crowd the editor. Pick scenery, or 🖼 upload your own image (cover-fit to the level's size). 📋 copies a ready-made brief for an image agent — it states the exact dimensions and floor line for the current world shape; add your style notes, generate, import. A faint alignment grid overlays while editing.</div>
-        <div class="sect"><b>Test (▶).</b> Gravity exists only here, built fresh from the schema and thrown away on ■ — the level is never touched by physics. In slingshot, drag the hero back from the launcher and release to fire. In drop, tap to hop; in drive, use the on-screen controls.</div>
-        <div class="sect"><b>The schema ({ }).</b> The level is JSON. Copy it into a Claude chat; paste Claude's levels back and Load. 💾 saves named versions grouped into scenes, alongside committed levels.</div>
+        <div class="sect">
+          <b>Modes (⚙ Settings).</b> Settings cycles the mode: <b>slingshot</b> → <b>drop</b> →
+          <b>drive</b>. In <b>drop</b> the hero spawns at the start pad and falls;
+          <b>tap anywhere to hop</b>, but only while it's resting on something (or a split-second
+          after rolling off an edge). Villains are hazards — touching one flashes red and restarts
+          you at the top (an attempt counter ticks up; nothing is destroyed). Reach the 🏁 goal (a
+          catch tray) to clear. <b>Drive</b> (Red Ball) gives you on-screen ◀ ▶ and a jump to steer
+          the hero to the 🏁 goal; villains are lethal there too. Drop and drive never break pieces
+          — but ice still melts.
+        </div>
+        <div class="sect">
+          <b>World shape (⚙ Settings).</b> A level's size is part of its data: <b>wide</b> 1600×900
+          or <b>tall</b> 900×1600 (tall suits drop and portrait play). Switching keeps every object
+          where it sits and just flags how many pieces landed out of bounds — nudge them back in.
+          Backdrops, the floor, zoom-to-fit and the agent brief all follow the level's shape.
+        </div>
+        <div class="sect">
+          <b>Backdrops (⚙ Settings).</b> The backdrop lives in Settings so it doesn't crowd the
+          editor. Pick scenery, or 🖼 upload your own image (cover-fit to the level's size). 📋
+          copies a ready-made brief for an image agent — it states the exact dimensions and floor
+          line for the current world shape; add your style notes, generate, import. A faint
+          alignment grid overlays while editing.
+        </div>
+        <div class="sect">
+          <b>Test (▶).</b> Gravity exists only here, built fresh from the schema and thrown away on
+          ■ — the level is never touched by physics. In slingshot, drag the hero back from the
+          launcher and release to fire. In drop, tap to hop; in drive, use the on-screen controls.
+        </div>
+        <div class="sect">
+          <b>The schema ({ }).</b> The level is JSON. Copy it into a Claude chat; paste Claude's
+          levels back and Load. 💾 saves named versions grouped into scenes, alongside committed
+          levels.
+        </div>
       </div>
       <div class="row"><button id="h-close" class="accent">Close</button></div>
     </div>
 
     <div class="modal" id="bmodal">
-      <h2>BACKDROP BRIEF — copy this to any image agent, add your style notes at the bottom, then 🖼 import the result.</h2>
+      <h2>
+        BACKDROP BRIEF — copy this to any image agent, add your style notes at the bottom, then 🖼
+        import the result.
+      </h2>
       <textarea id="brieftext" spellcheck="false"></textarea>
       <div class="row">
         <button id="br-copy" class="accent">Copy brief</button>
@@ -1459,46 +1816,118 @@
     <div class="modal" id="smodal">
       <h2>SETTINGS</h2>
       <div class="setrow">
-        <div class="setlbl">Theme<small>dark (the classic look), light, or auto — follow this device's system setting</small></div>
+        <div class="setlbl">
+          Theme<small
+            >dark (the classic look), light, or auto — follow this device's system setting</small
+          >
+        </div>
         <button id="set-theme"></button>
       </div>
       <div class="setrow">
-        <div class="setlbl">After stamping a piece<small>jump to ✋ with the new piece selected, or stay armed and keep stamping</small></div>
+        <div class="setlbl">
+          After stamping a piece<small
+            >jump to ✋ with the new piece selected, or stay armed and keep stamping</small
+          >
+        </div>
         <button id="set-after"></button>
       </div>
       <div class="setrow">
-        <div class="setlbl">Solid pieces<small>keep placed pieces from overlapping so a structure holds together when physics runs in Test — a new piece or ⧉ copy stays a 👻 passthrough ghost until it loses focus; off restores free placement</small></div>
+        <div class="setlbl">
+          Solid pieces<small
+            >keep placed pieces from overlapping so a structure holds together when physics runs in
+            Test — a new piece or ⧉ copy stays a 👻 passthrough ghost until it loses focus; off
+            restores free placement</small
+          >
+        </div>
         <button id="set-solid"></button>
       </div>
       <div class="setrow">
-        <div class="setlbl">Hero<small>the emoji you fling — one hero across levels, set here (or in meta.hero)</small></div>
+        <div class="setlbl">
+          Hero<small
+            >the emoji you fling — one hero across levels, set here (or in meta.hero)</small
+          >
+        </div>
         <button id="herobtn">🙂</button>
       </div>
       <div class="setrow">
-        <div class="setlbl">Mode<small>slingshot (fling a hero at villains), drop (tap to hop down to the 🏁 tray), or drive (Red Ball: steer to the 🏁 goal)</small></div>
+        <div class="setlbl">
+          Mode<small
+            >slingshot (fling a hero at villains), drop (tap to hop down to the 🏁 tray), or drive
+            (Red Ball: steer to the 🏁 goal)</small
+          >
+        </div>
         <button id="set-mode"></button>
       </div>
       <div class="setrow" id="set-bounce-row">
-        <div class="setlbl">Hero bounciness<small>how much the drive-mode hero rebounds — 0 is a dead ball, 100 is a super-bouncy rubber ball</small></div>
+        <div class="setlbl">
+          Hero bounciness<small
+            >how much the drive-mode hero rebounds — 0 is a dead ball, 100 is a super-bouncy rubber
+            ball</small
+          >
+        </div>
         <div class="row" style="gap: 8px; align-items: center">
           <input type="range" id="set-bounce" min="0" max="100" step="5" style="flex: 1" />
-          <span id="set-bounce-val" style="min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums"></span>
+          <span
+            id="set-bounce-val"
+            style="min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums"
+          ></span>
         </div>
       </div>
       <div class="setrow">
-        <div class="setlbl">World shape<small>wide 1600×900 or tall 900×1600 — tall suits drop &amp; portrait play. Object coordinates are kept; out-of-bounds pieces are flagged</small></div>
+        <div class="setlbl">
+          World shape<small
+            >wide 1600×900 or tall 900×1600 — tall suits drop &amp; portrait play. Object
+            coordinates are kept; out-of-bounds pieces are flagged</small
+          >
+        </div>
         <button id="set-shape"></button>
       </div>
       <div class="setrow setrow-col">
-        <div class="setlbl">Backdrop<small>scenery behind the level — set here so it doesn't crowd the editor. Pick a scene, 🖼 upload your own image, or 📋 copy a brief for an image agent</small></div>
+        <div class="setlbl">
+          Backdrop<small
+            >scenery behind the level — set here so it doesn't crowd the editor. Pick a scene, 🖼
+            upload your own image, or 📋 copy a brief for an image agent</small
+          >
+        </div>
         <div class="row" id="bgrow">
           <span class="bgw" data-bg="grid" title="drafting grid" style="background: #101a27"></span>
-          <span class="bgw" data-bg="grass" title="grass" style="background: linear-gradient(#8ec9ef 55%, #79b356 55%)"></span>
-          <span class="bgw" data-bg="cave" title="cave" style="background: linear-gradient(#241c15, #33281e)"></span>
-          <span class="bgw" data-bg="desert" title="desert" style="background: linear-gradient(#f5cf8e 55%, #dba55e 55%)"></span>
-          <span class="bgw" data-bg="night" title="night" style="background: linear-gradient(#0a0e22, #1b2344)"></span>
-          <span class="bgw" data-bg="sky" title="sky" style="background: linear-gradient(#8fc3ec, #dceefb)"></span>
-          <span class="bgw" data-bg="custom" id="bg-custom" title="your image" style="display: none"></span>
+          <span
+            class="bgw"
+            data-bg="grass"
+            title="grass"
+            style="background: linear-gradient(#8ec9ef 55%, #79b356 55%)"
+          ></span>
+          <span
+            class="bgw"
+            data-bg="cave"
+            title="cave"
+            style="background: linear-gradient(#241c15, #33281e)"
+          ></span>
+          <span
+            class="bgw"
+            data-bg="desert"
+            title="desert"
+            style="background: linear-gradient(#f5cf8e 55%, #dba55e 55%)"
+          ></span>
+          <span
+            class="bgw"
+            data-bg="night"
+            title="night"
+            style="background: linear-gradient(#0a0e22, #1b2344)"
+          ></span>
+          <span
+            class="bgw"
+            data-bg="sky"
+            title="sky"
+            style="background: linear-gradient(#8fc3ec, #dceefb)"
+          ></span>
+          <span
+            class="bgw"
+            data-bg="custom"
+            id="bg-custom"
+            title="your image"
+            style="display: none"
+          ></span>
           <button id="bg-upload" title="upload backdrop image">🖼</button>
           <button id="bg-brief" title="copyable brief for an image agent">📋</button>
           <input type="file" id="bg-file" accept="image/*" style="display: none" />
@@ -1510,10 +1939,13 @@
     <div class="modal" id="modal">
       <h2>
         LEVEL SCHEMA — the contract between you and Claude.<br />
-        <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with JSON pasted in.
+        <b>Copy</b> → clipboard → paste into chat. <b>Paste &amp; Load</b> replaces this level with
+        JSON pasted in.
       </h2>
       <div class="pdsrow">
-        <a id="lex-pdslink" class="viewlink" target="_blank" rel="noopener">↗&nbsp; View the lexicon on pdsview.croft.ing</a>
+        <a id="lex-pdslink" class="viewlink" target="_blank" rel="noopener"
+          >↗&nbsp; View the lexicon on pdsview.croft.ing</a
+        >
         <span id="lex-pdsnote" class="dim-note"></span>
       </div>
       <textarea id="json" spellcheck="false"></textarea>
@@ -1529,8 +1961,13 @@
     </div>
 
     <div class="modal" id="nmodal">
-      <h2>NOTE — intent, in your words. 🎤 tries in-browser transcription. Text rides in the schema.</h2>
-      <textarea id="notetext" placeholder="e.g. the painted cave wall should crumble when the boulder lands…"></textarea>
+      <h2>
+        NOTE — intent, in your words. 🎤 tries in-browser transcription. Text rides in the schema.
+      </h2>
+      <textarea
+        id="notetext"
+        placeholder="e.g. the painted cave wall should crumble when the boulder lands…"
+      ></textarea>
       <div class="row">
         <button id="n-mic">🎤 dictate</button>
         <button id="n-cancel">Cancel</button>
@@ -1557,7 +1994,10 @@
     </div>
 
     <div class="modal" id="efmodal">
-      <h2 id="eftitle">HIT EFFECT — what this emoji does the moment it's destroyed in Test. It fires when your hero smashes it. A copied piece keeps its effect.</h2>
+      <h2 id="eftitle">
+        HIT EFFECT — what this emoji does the moment it's destroyed in Test. It fires when your hero
+        smashes it. A copied piece keeps its effect.
+      </h2>
       <div id="eflist"></div>
       <div class="row">
         <button id="ef-none">No effect</button>
@@ -1565,8 +2005,58 @@
       </div>
     </div>
 
+    <div class="modal" id="ptmodal">
+      <h2>
+        PAINT TOOLS — double-tap 🖌 paint anytime to switch. Color &amp; size live in the paint row
+        beside the materials.
+      </h2>
+      <div id="ptlist"></div>
+      <div class="row"><button id="pt-close" class="accent">Close</button></div>
+    </div>
+
+    <div class="modal" id="txmodal">
+      <h2 id="txtitle">
+        TEXT — type it and place it. Text is a real physics piece in the current material; recolor
+        it with 🎨.
+      </h2>
+      <div class="row" id="txrow">
+        <input type="text" id="txinput" placeholder="type something…" maxlength="80" />
+      </div>
+      <div class="row">
+        <button id="tx-cancel">Cancel</button>
+        <button id="tx-place" class="accent">Place text</button>
+      </div>
+    </div>
+
+    <div class="modal" id="cmodal">
+      <h2 id="ctitle">
+        COLOR — drag the wheel; the slider sets brightness. “Material color” goes back to the
+        material's own paint.
+      </h2>
+      <div id="cwheelwrap"><canvas id="cwheel" width="240" height="240"></canvas></div>
+      <div class="row" id="cvalrow">
+        <input type="range" id="cval" min="8" max="100" value="100" />
+        <span id="cprev" title="current color"></span>
+        <input type="text" id="chex" spellcheck="false" maxlength="7" title="hex color" />
+      </div>
+      <div class="row" id="calpharow">
+        <span class="elbl" style="width: auto">OPACITY</span>
+        <input type="range" id="calpha" min="10" max="100" value="100" />
+        <span id="calphaval"></span>
+      </div>
+      <span class="elbl" id="creclbl">RECENT</span>
+      <div id="crecents"></div>
+      <div class="row">
+        <button id="c-pick">💧 pick from board</button>
+        <button id="c-material">material color</button>
+        <button id="c-close" class="accent">Done</button>
+      </div>
+    </div>
+
     <div class="modal" id="lmodal">
-      <h2>LIBRARY — committed levels and your local drafts, grouped by scene. Tap a card to load.</h2>
+      <h2>
+        LIBRARY — committed levels and your local drafts, grouped by scene. Tap a card to load.
+      </h2>
       <div class="row" id="lib-save">
         <input type="text" id="sv-name" placeholder="level name" />
         <input type="text" id="sv-scene" placeholder="scene (optional)" />
@@ -1581,7 +2071,9 @@
       <div id="sv-still"><canvas id="sv-thumb" width="640" height="360"></canvas></div>
       <div id="sv-caption"></div>
       <div class="pdsrow">
-        <a id="sv-pdslink" class="viewlink" target="_blank" rel="noopener">↗&nbsp; View this level on pdsview.croft.ing</a>
+        <a id="sv-pdslink" class="viewlink" target="_blank" rel="noopener"
+          >↗&nbsp; View this level on pdsview.croft.ing</a
+        >
         <span id="sv-pdsnote" class="dim-note"></span>
       </div>
       <div class="row"><button id="sv-done" class="accent">Done</button></div>
@@ -1618,11 +2110,36 @@
       <span class="elbl">BACKDROP — the scenery behind your level</span>
       <div class="row" id="nl-bgrow">
         <span class="bgw" data-nlbg="grid" title="drafting grid" style="background: #101a27"></span>
-        <span class="bgw" data-nlbg="grass" title="grass" style="background: linear-gradient(#8ec9ef 55%, #79b356 55%)"></span>
-        <span class="bgw" data-nlbg="cave" title="cave" style="background: linear-gradient(#241c15, #33281e)"></span>
-        <span class="bgw" data-nlbg="desert" title="desert" style="background: linear-gradient(#f5cf8e 55%, #dba55e 55%)"></span>
-        <span class="bgw" data-nlbg="night" title="night" style="background: linear-gradient(#0a0e22, #1b2344)"></span>
-        <span class="bgw" data-nlbg="sky" title="sky" style="background: linear-gradient(#8fc3ec, #dceefb)"></span>
+        <span
+          class="bgw"
+          data-nlbg="grass"
+          title="grass"
+          style="background: linear-gradient(#8ec9ef 55%, #79b356 55%)"
+        ></span>
+        <span
+          class="bgw"
+          data-nlbg="cave"
+          title="cave"
+          style="background: linear-gradient(#241c15, #33281e)"
+        ></span>
+        <span
+          class="bgw"
+          data-nlbg="desert"
+          title="desert"
+          style="background: linear-gradient(#f5cf8e 55%, #dba55e 55%)"
+        ></span>
+        <span
+          class="bgw"
+          data-nlbg="night"
+          title="night"
+          style="background: linear-gradient(#0a0e22, #1b2344)"
+        ></span>
+        <span
+          class="bgw"
+          data-nlbg="sky"
+          title="sky"
+          style="background: linear-gradient(#8fc3ec, #dceefb)"
+        ></span>
       </div>
       <span class="elbl">WORLD SHAPE</span>
       <div class="row nl-shaperow">

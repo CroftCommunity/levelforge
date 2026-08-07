@@ -73,7 +73,7 @@ Object shapes:
 
 - `emoji`: `r`, `emoji` (glyph). Round physics body, emoji glyph as skin. An emoji in `target` material is a villain.
 
-- `blob`: `pts` (array of `[dx, dy]` relative to center, decimated to >= 0.6 x brush spacing, max 70), `brushR`. A painted freeform stroke. Physics: compound body of overlapping circles of radius `brushR` at each point. One rigid piece; melts and breaks as a unit.
+- `blob`: `pts` (array of `[dx, dy]` relative to center, decimated to >= 0.6 x brush spacing with a spacing floor for fine pencil strokes, max 200), `brushR`. A painted freeform stroke (paint brush or pencil — the pencil is just a small `brushR`). Physics: compound body of overlapping circles of radius `brushR` at each point. One rigid piece; melts and breaks as a unit.
 
 `migrate(level)` must accept every prior schema version (0.2 onward) and fill defaults: missing `meta.hero` -> "🙂", missing `meta.background` -> "grid", `background:"custom"` without an image -> "grid", missing per-object fields -> shape defaults. Bump `schemaVersion` on any additive change and extend `migrate`; never break the paste-and-load loop.
 
@@ -88,6 +88,14 @@ Object shapes:
 - `object.role` on target-material objects: `"destroy"` (default, villain) or `"protect"` (hostage variant: breaking it fails the level).
 
 - `object.hit`: optional per-emoji hit-effect key fired when the piece is destroyed in Test — one of `"pop"`, `"explode"`, `"shatter"`, `"splash"`, `"confetti"` (or `"none"` to suppress an effect the glyph would otherwise imply). Registry of effects lives in code; schema stores only the key.
+
+- `object.color`: optional `"#rrggbb"` paint color overriding the material's base fill. Rendering only — physics still comes from the material. Written by the forge's color wheel (paint strokes, text, and 🎨 recolor).
+
+- `object.text`: optional, box shapes only — a label string. The box renders as the glyphs themselves (in `color` or the material color) while physics keeps the box's `w`×`h`; the forge measures `w`/`h` to hug the glyphs (`h = fontPx * 1.3`). Written by the paint tray's text cursor.
+
+- `object.alpha`: optional opacity in `(0, 1]`. Rendering only; omitted means opaque. Written by the color wheel's opacity slider.
+
+- `object.fill`: optional, blob shapes only — render the stroke as a closed, filled shape (the 🪣 fill toggle). Physics stays the bead-chain outline; this is a documented simplification.
 
 ## Materials
 

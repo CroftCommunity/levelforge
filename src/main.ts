@@ -28,8 +28,26 @@ import {
   SLING_POLE_BOTTOM,
 } from './schema';
 import { MATERIALS, MaterialKey } from './materials';
-import { SNAP, snapN, triVerts, pointInTri, distToSeg, magnetSnap, separate, clampToWorld, clampAboveFloor, GeomObject } from './editor/geometry';
-import { drawSlingshotCtx, drawMaterialCtx, renderThumb, DEG } from './editor/render';
+import {
+  SNAP,
+  snapN,
+  triVerts,
+  pointInTri,
+  distToSeg,
+  magnetSnap,
+  separate,
+  clampToWorld,
+  clampAboveFloor,
+  GeomObject,
+} from './editor/geometry';
+import {
+  drawSlingshotCtx,
+  drawMaterialCtx,
+  renderThumb,
+  DEG,
+  textFont,
+  TEXT_H_PER_PX,
+} from './editor/render';
 import { drawBackdrop, agentBrief } from './editor/backdrops';
 import {
   saveWorking,
@@ -62,10 +80,72 @@ import { DriveSession } from './play/drive';
 import { DropSession } from './play/drop';
 import { searchEmoji } from './editor/emoji-data';
 import { behaviorFor, EFFECTS, HIT_BEHAVIORS } from './play/behaviors';
-import { ThemePref, DEFAULT_THEME, normalizeTheme, cycleTheme, resolveTheme, themeLabel } from './theme';
+import {
+  ThemePref,
+  DEFAULT_THEME,
+  normalizeTheme,
+  cycleTheme,
+  resolveTheme,
+  themeLabel,
+} from './theme';
 
 const MAXZOOM = 4;
 const BRUSH = BRUSH_DEFAULT;
+
+/* --------------------------- paint tools ------------------------------- */
+/* The 🖌 paint preset is four tools in one — double-tap it to switch:
+   brush (bold blobs), pencil (fine lines), a text cursor (typed glyphs as
+   physics pieces), and an eraser that scrubs paint and text away. Brush and
+   pencil carry three sizes each; strokes and text can take a custom color
+   and opacity from the wheel (or inherit the material's paint), and the 📏
+   ruler / 🪣 fill / 🪞 mirror toggles bend how a stroke lands. */
+type PaintTool = 'brush' | 'pencil' | 'text' | 'eraser';
+interface PaintToolSpec {
+  icon: string;
+  name: string;
+  blurb: string;
+  /** S/M/L — brush & pencil: stroke radius; text: font px. */
+  sizes: [number, number, number];
+  /** Blob point budget per stroke (schema max is 200). */
+  maxPts: number;
+  /** Floor on point spacing so fine radii still cover real distance. */
+  minSpacing: number;
+}
+const PAINT_TOOLS: Record<PaintTool, PaintToolSpec> = {
+  brush: {
+    icon: '🖌',
+    name: 'paint brush',
+    blurb: 'drag to paint a bold freeform blob — it becomes one solid piece',
+    sizes: [14, BRUSH_DEFAULT, 44],
+    maxPts: 70,
+    minSpacing: 0,
+  },
+  pencil: {
+    icon: '✏️',
+    name: 'pencil',
+    blurb: 'fine lines — outlines, wires, detail work',
+    sizes: [3, 5, 8],
+    maxPts: 200,
+    minSpacing: 6,
+  },
+  text: {
+    icon: '🅰',
+    name: 'text',
+    blurb: 'a cursor for actual text — tap the board, type, and place it',
+    sizes: [28, 48, 76],
+    maxPts: 0,
+    minSpacing: 0,
+  },
+  eraser: {
+    icon: '🧽',
+    name: 'eraser',
+    blurb: 'tap or scrub to remove paint strokes and text (other pieces are safe)',
+    sizes: [0, 0, 0],
+    maxPts: 0,
+    minSpacing: 0,
+  },
+};
+const PAINT_TOOL_KEYS: PaintTool[] = ['brush', 'pencil', 'text', 'eraser'];
 
 /* ---------------------------- shape presets --------------------------- */
 interface ShapePreset {
@@ -86,12 +166,78 @@ const SHAPES: ShapePreset[] = [
 ];
 
 const EMOJI_PALETTE = [
-  '😀', '😎', '🥸', '🤠', '🥶', '🤡', '👻', '💀', '👽', '🤖', '👿', '😈',
-  '🎃', '🐶', '🐱', '🦊', '🐻', '🐼', '🐸', '🦆', '🐟', '🐙', '🦀', '🐢',
-  '🦖', '🐉', '🕷️', '🐝', '🌵', '🌲', '🍄', '🌸', '🍉', '🍕', '🍩', '🎂',
-  '⚽', '🏀', '🎳', '🎯', '🎲', '🧨', '💣', '🧱', '🪵', '🪨', '⭐', '🌙',
-  '☄️', '⚡', '🔥', '❄️', '💧', '🌈', '💎', '🔔', '🎁', '🏆', '🚗', '🚀',
-  '⚓', '🛸', '🎈', '🪁', '🧊', '🫧', '🥊', '🛡️', '⚔️', '🔮', '🧲', '💰',
+  '😀',
+  '😎',
+  '🥸',
+  '🤠',
+  '🥶',
+  '🤡',
+  '👻',
+  '💀',
+  '👽',
+  '🤖',
+  '👿',
+  '😈',
+  '🎃',
+  '🐶',
+  '🐱',
+  '🦊',
+  '🐻',
+  '🐼',
+  '🐸',
+  '🦆',
+  '🐟',
+  '🐙',
+  '🦀',
+  '🐢',
+  '🦖',
+  '🐉',
+  '🕷️',
+  '🐝',
+  '🌵',
+  '🌲',
+  '🍄',
+  '🌸',
+  '🍉',
+  '🍕',
+  '🍩',
+  '🎂',
+  '⚽',
+  '🏀',
+  '🎳',
+  '🎯',
+  '🎲',
+  '🧨',
+  '💣',
+  '🧱',
+  '🪵',
+  '🪨',
+  '⭐',
+  '🌙',
+  '☄️',
+  '⚡',
+  '🔥',
+  '❄️',
+  '💧',
+  '🌈',
+  '💎',
+  '🔔',
+  '🎁',
+  '🏆',
+  '🚗',
+  '🚀',
+  '⚓',
+  '🛸',
+  '🎈',
+  '🪁',
+  '🧊',
+  '🫧',
+  '🥊',
+  '🛡️',
+  '⚔️',
+  '🔮',
+  '🧲',
+  '💰',
 ];
 
 /* ------------------------------ prefs --------------------------------- */
@@ -103,20 +249,73 @@ interface Prefs {
   theme: ThemePref;
   hero: string;
   recents: string[];
+  /** Paint sub-tool (brush/pencil/text) + per-tool S/M/L size index. */
+  paintTool: PaintTool;
+  paintSize: Record<PaintTool, number>;
+  /** Custom stroke color, or null = the material's own paint. */
+  paintColor: string | null;
+  /** Last 5 wheel-picked colors, newest first. */
+  paintRecents: string[];
+  /** Stroke opacity (0.1–1). */
+  paintAlpha: number;
+  /** 📏 ruler: strokes become straight start→end lines. */
+  paintLine: boolean;
+  /** 🪣 fill: close the stroke and flood its interior. */
+  paintFill: boolean;
+  /** 🪞 mirror: paint both sides of the board's vertical centerline. */
+  paintMirror: boolean;
 }
 const PREFS_KEY = 'lf:prefs';
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 function loadPrefs(): Prefs {
-  const fallback: Prefs = { afterPlace: 'adjust', solid: true, theme: DEFAULT_THEME, hero: DEFAULT_HERO, recents: ['🎃', '💣', '⭐', '🦆', '👿'] };
+  const fallback: Prefs = {
+    afterPlace: 'adjust',
+    solid: true,
+    theme: DEFAULT_THEME,
+    hero: DEFAULT_HERO,
+    recents: ['🎃', '💣', '⭐', '🦆', '👿'],
+    paintTool: 'brush',
+    paintSize: { brush: 1, pencil: 1, text: 1, eraser: 1 },
+    paintColor: null,
+    paintRecents: [],
+    paintAlpha: 1,
+    paintLine: false,
+    paintFill: false,
+    paintMirror: false,
+  };
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
     if (!raw) return fallback;
     const p = JSON.parse(raw);
+    const szIdx = (v: unknown): number => (v === 0 || v === 1 || v === 2 ? v : 1);
     return {
       afterPlace: p.afterPlace === 'stamp' ? 'stamp' : 'adjust',
       solid: p.solid === false ? false : true,
       theme: normalizeTheme(p.theme),
       hero: typeof p.hero === 'string' && p.hero ? p.hero : DEFAULT_HERO,
-      recents: Array.isArray(p.recents) && p.recents.length ? p.recents.slice(0, 10) : fallback.recents,
+      recents:
+        Array.isArray(p.recents) && p.recents.length ? p.recents.slice(0, 10) : fallback.recents,
+      paintTool: PAINT_TOOL_KEYS.includes(p.paintTool) ? p.paintTool : 'brush',
+      paintSize: {
+        brush: szIdx(p.paintSize?.brush),
+        pencil: szIdx(p.paintSize?.pencil),
+        text: szIdx(p.paintSize?.text),
+        eraser: szIdx(p.paintSize?.eraser),
+      },
+      paintColor:
+        typeof p.paintColor === 'string' && COLOR_RE.test(p.paintColor) ? p.paintColor : null,
+      paintRecents: Array.isArray(p.paintRecents)
+        ? p.paintRecents
+            .filter((c: unknown) => typeof c === 'string' && COLOR_RE.test(c))
+            .slice(0, 5)
+        : [],
+      paintAlpha:
+        typeof p.paintAlpha === 'number' && p.paintAlpha >= 0.1 && p.paintAlpha <= 1
+          ? p.paintAlpha
+          : 1,
+      paintLine: p.paintLine === true,
+      paintFill: p.paintFill === true,
+      paintMirror: p.paintMirror === true,
     };
   } catch {
     return fallback;
@@ -124,7 +323,24 @@ function loadPrefs(): Prefs {
 }
 function savePrefs(): void {
   try {
-    window.localStorage.setItem(PREFS_KEY, JSON.stringify({ afterPlace: settings.afterPlace, solid: settings.solid, theme: settings.theme, hero: prefHero, recents: emojiRecents }));
+    window.localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        afterPlace: settings.afterPlace,
+        solid: settings.solid,
+        theme: settings.theme,
+        hero: prefHero,
+        recents: emojiRecents,
+        paintTool,
+        paintSize,
+        paintColor,
+        paintRecents,
+        paintAlpha,
+        paintLine,
+        paintFill,
+        paintMirror,
+      }),
+    );
   } catch {
     /* ignore */
   }
@@ -144,7 +360,9 @@ function applyTheme(): void {
   const css = getComputedStyle(document.documentElement);
   stageFill = css.getPropertyValue('--stage').trim() || stageFill;
   // keep the browser/OS chrome (address bar, status bar) matched to the shell
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', css.getPropertyValue('--bg').trim() || '#0f1722');
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', css.getPropertyValue('--bg').trim() || '#0f1722');
 }
 systemDarkMq.addEventListener('change', () => {
   if (settings.theme === 'auto') {
@@ -160,17 +378,117 @@ let emojiFor: 'stamp' | 'hero' | 'newlevel' = 'stamp';
 let idSeq = 1;
 const nid = (): string => 'o' + idSeq++;
 let curMat: MaterialKey = 'wood';
+let paintTool: PaintTool = prefs.paintTool;
+const paintSize: Record<PaintTool, number> = { ...prefs.paintSize };
+let paintColor: string | null = prefs.paintColor;
+let paintRecents: string[] = [...prefs.paintRecents];
+let paintAlpha = prefs.paintAlpha;
+let paintLine = prefs.paintLine;
+let paintFill = prefs.paintFill;
+let paintMirror = prefs.paintMirror;
+/** Current stroke radius (brush/pencil) or font px (text) for the armed tool. */
+const paintR = (): number => PAINT_TOOLS[paintTool].sizes[paintSize[paintTool]];
 
 function demoObjects(): LevelObject[] {
   const F = 860;
   return [
-    { id: nid(), shape: 'box', x: 1100, y: F - 40, w: 30, h: 80, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'box', x: 1240, y: F - 40, w: 30, h: 80, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'box', x: 1170, y: F - 95, w: 220, h: 26, angle: 0, material: 'wood', anchored: false, path: null, note: '' },
-    { id: nid(), shape: 'blob', x: 960, y: F - 120, angle: 0, material: 'stone', anchored: true, path: null, brushR: 26, pts: [[-60, 110], [-40, 40], [-10, -30], [20, -90], [45, -110]], note: 'painted stone spire' },
-    { id: nid(), shape: 'emoji', x: 1170, y: F - 133, r: 26, angle: 0, material: 'target', emoji: '👿', anchored: false, path: null, note: 'villain on the roof' },
-    { id: nid(), shape: 'emoji', x: 1170, y: F - 38, r: 26, angle: 0, material: 'target', emoji: '🎃', anchored: false, path: null, note: 'villain in the house' },
-    { id: nid(), shape: 'box', x: 560, y: F - 260, w: 180, h: 22, angle: 0, material: 'metal', anchored: true, path: { x: 820, y: F - 260, speed: 90 }, note: 'moving platform' },
+    {
+      id: nid(),
+      shape: 'box',
+      x: 1100,
+      y: F - 40,
+      w: 30,
+      h: 80,
+      angle: 0,
+      material: 'wood',
+      anchored: false,
+      path: null,
+      note: '',
+    },
+    {
+      id: nid(),
+      shape: 'box',
+      x: 1240,
+      y: F - 40,
+      w: 30,
+      h: 80,
+      angle: 0,
+      material: 'wood',
+      anchored: false,
+      path: null,
+      note: '',
+    },
+    {
+      id: nid(),
+      shape: 'box',
+      x: 1170,
+      y: F - 95,
+      w: 220,
+      h: 26,
+      angle: 0,
+      material: 'wood',
+      anchored: false,
+      path: null,
+      note: '',
+    },
+    {
+      id: nid(),
+      shape: 'blob',
+      x: 960,
+      y: F - 120,
+      angle: 0,
+      material: 'stone',
+      anchored: true,
+      path: null,
+      brushR: 26,
+      pts: [
+        [-60, 110],
+        [-40, 40],
+        [-10, -30],
+        [20, -90],
+        [45, -110],
+      ],
+      note: 'painted stone spire',
+    },
+    {
+      id: nid(),
+      shape: 'emoji',
+      x: 1170,
+      y: F - 133,
+      r: 26,
+      angle: 0,
+      material: 'target',
+      emoji: '👿',
+      anchored: false,
+      path: null,
+      note: 'villain on the roof',
+    },
+    {
+      id: nid(),
+      shape: 'emoji',
+      x: 1170,
+      y: F - 38,
+      r: 26,
+      angle: 0,
+      material: 'target',
+      emoji: '🎃',
+      anchored: false,
+      path: null,
+      note: 'villain in the house',
+    },
+    {
+      id: nid(),
+      shape: 'box',
+      x: 560,
+      y: F - 260,
+      w: 180,
+      h: 22,
+      angle: 0,
+      material: 'metal',
+      anchored: true,
+      path: { x: 820, y: F - 260, speed: 90 },
+      note: 'moving platform',
+    },
   ];
 }
 
@@ -362,11 +680,35 @@ function drawEdit(): void {
   if (level.meta.mode === 'slingshot') {
     drawSlingshotCtx(ctx, sx, sy, true);
     // ghost hero at the launcher
-    drawMaterialCtx(ctx, { shape: 'emoji', x: sx, y: sy - 30, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+    drawMaterialCtx(
+      ctx,
+      {
+        shape: 'emoji',
+        x: sx,
+        y: sy - 30,
+        r: 22,
+        angle: 0,
+        material: 'rubber',
+        emoji: level.meta.hero || DEFAULT_HERO,
+      },
+      true,
+    );
   } else {
     // drop/drive reinterpret the launcher as a spawn pad
     drawStartPad(ctx, sx, sy);
-    drawMaterialCtx(ctx, { shape: 'emoji', x: sx, y: sy, r: 22, angle: 0, material: 'rubber', emoji: level.meta.hero || DEFAULT_HERO }, true);
+    drawMaterialCtx(
+      ctx,
+      {
+        shape: 'emoji',
+        x: sx,
+        y: sy,
+        r: 22,
+        angle: 0,
+        material: 'rubber',
+        emoji: level.meta.hero || DEFAULT_HERO,
+      },
+      true,
+    );
   }
   // drive-mode goal handle
   if (level.meta.mode === 'drive' && level.meta.goal) {
@@ -391,7 +733,15 @@ function drawEdit(): void {
     ctx.font = '30px ui-monospace,monospace';
     ctx.textAlign = 'center';
     ctx.fillText(
-      armed ? (armed.shape === 'blob' ? 'drag to paint' : 'tap the board to stamp') : 'arm a shape, then tap the board · 💡 explains everything',
+      armed
+        ? armed.shape === 'blob'
+          ? paintTool === 'text'
+            ? 'tap the board to place text'
+            : paintTool === 'eraser'
+              ? 'tap or scrub to erase paint & text'
+              : 'drag to paint'
+          : 'tap the board to stamp'
+        : 'arm a shape, then tap the board · 💡 explains everything',
       level.world.w / 2,
       level.world.h * 0.42,
     );
@@ -422,9 +772,28 @@ function drawEdit(): void {
     drawMaterialCtx(ctx, o, false);
     if (ghost) ctx.globalAlpha = 1;
   }
-  // live paint preview
+  // live paint preview (and its 🪞 mirror twin, when mirror painting is on)
   if (gesture && gesture.kind === 'paint' && gesture.pts.length) {
-    drawMaterialCtx(ctx, { shape: 'blob', x: 0, y: 0, angle: 0, material: curMat, brushR: BRUSH, pts: gesture.pts.map((p) => [p.x, p.y] as [number, number]) }, true);
+    const previews: Array<(p: { x: number; y: number }) => [number, number]> = [(p) => [p.x, p.y]];
+    if (paintMirror) previews.push((p) => [level.world.w - p.x, p.y]);
+    for (const map of previews) {
+      drawMaterialCtx(
+        ctx,
+        {
+          shape: 'blob',
+          x: 0,
+          y: 0,
+          angle: 0,
+          material: curMat,
+          brushR: gesture.r,
+          pts: gesture.pts.map(map),
+          color: paintColor ?? undefined,
+          alpha: paintAlpha < 0.995 ? paintAlpha : undefined,
+          fill: paintFill || undefined,
+        },
+        true,
+      );
+    }
   }
   const sel = selected();
   if (sel) {
@@ -508,12 +877,26 @@ let handMode: 'adjust' | 'view' = 'adjust';
 const selected = (): LevelObject | null => level.objects.find((o) => o.id === selId) || null;
 
 type Gesture =
-  | { kind: 'vzoom'; d0: number; m0: { sx: number; sy: number }; z0: number; ox0: number; oy0: number }
-  | { kind: 'vpan'; last: { sx: number; sy: number }; start: { sx: number; sy: number }; downT: number; moved: boolean }
+  | {
+      kind: 'vzoom';
+      d0: number;
+      m0: { sx: number; sy: number };
+      z0: number;
+      ox0: number;
+      oy0: number;
+    }
+  | {
+      kind: 'vpan';
+      last: { sx: number; sy: number };
+      start: { sx: number; sy: number };
+      downT: number;
+      moved: boolean;
+    }
   | { kind: 'pinch'; d0: number; a0: number; o: LevelObject }
   | { kind: 'rotate'; cx: number; cy: number; a0: number; pa0: number }
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
-  | { kind: 'paint'; pts: { x: number; y: number }[] }
+  | { kind: 'paint'; pts: { x: number; y: number }[]; r: number; tool: PaintTool; line: boolean }
+  | { kind: 'erase'; snapped: boolean }
   | { kind: 'path' }
   | { kind: 'sling' }
   | { kind: 'goal' };
@@ -595,7 +978,10 @@ function handleCorners(o: LevelObject): { x: number; y: number }[] | null {
 }
 
 function applyMagnet(sel: LevelObject): { sx: boolean; sy: boolean } {
-  const res = magnetSnap(sel as GeomObject, level.objects as GeomObject[], { zoom: view.zoom, floorY: level.world.floorY });
+  const res = magnetSnap(sel as GeomObject, level.objects as GeomObject[], {
+    zoom: view.zoom,
+    floorY: level.world.floorY,
+  });
   sel.x = res.x;
   sel.y = res.y;
   return { sx: res.snappedX, sy: res.snappedY };
@@ -653,7 +1039,17 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   snap();
   const pr = armed!;
   const c = clampToWorld(p.x, p.y, level.world.w, level.world.h);
-  const o: LevelObject = { id: nid(), shape: pr.shape, x: c.x, y: c.y, angle: 0, material: curMat, anchored: false, path: null, note: '' };
+  const o: LevelObject = {
+    id: nid(),
+    shape: pr.shape,
+    x: c.x,
+    y: c.y,
+    angle: 0,
+    material: curMat,
+    anchored: false,
+    path: null,
+    note: '',
+  };
   if (pr.shape === 'box') {
     o.w = pr.rotatable && armedRot ? pr.h : pr.w;
     o.h = pr.rotatable && armedRot ? pr.w : pr.h;
@@ -682,9 +1078,48 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   syncInspector();
 }
 
-function finishPaint(pts: { x: number; y: number }[]): void {
-  if (!pts.length) return;
-  snap();
+/** Densify a sparse stroke so consecutive points sit within `spacing` — the
+    physics beads must overlap. 📏 ruler strokes record only their endpoints. */
+function densify(
+  pts: { x: number; y: number }[],
+  spacing: number,
+  cap: number,
+): { x: number; y: number }[] {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length && out.length < cap; i++) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const steps = Math.max(1, Math.ceil(Math.hypot(cur.x - prev.x, cur.y - prev.y) / spacing));
+    for (let k = 1; k <= steps && out.length < cap; k++) {
+      out.push({
+        x: prev.x + ((cur.x - prev.x) * k) / steps,
+        y: prev.y + ((cur.y - prev.y) * k) / steps,
+      });
+    }
+  }
+  return out;
+}
+
+/** One light neighbour-average pass so finger jitter disappears from long
+    freehand curves. Endpoints are kept where the finger put them. */
+function smoothStroke(pts: { x: number; y: number }[]): { x: number; y: number }[] {
+  if (pts.length < 5) return pts;
+  return pts.map((p, i) => {
+    if (i === 0 || i === pts.length - 1) return p;
+    return {
+      x: (pts[i - 1].x + 2 * p.x + pts[i + 1].x) / 4,
+      y: (pts[i - 1].y + 2 * p.y + pts[i + 1].y) / 4,
+    };
+  });
+}
+
+/** Build a blob object from stroke points, applying the paint color/opacity
+    and the 🪣 fill flag. Coordinates become centre + relative points. */
+function strokeToBlob(
+  pts: { x: number; y: number }[],
+  brushR: number,
+  mirrored: boolean,
+): LevelObject {
   let cxx = 0;
   let cyy = 0;
   for (const p of pts) {
@@ -693,22 +1128,56 @@ function finishPaint(pts: { x: number; y: number }[]): void {
   }
   cxx /= pts.length;
   cyy /= pts.length;
+  const cx = mirrored ? level.world.w - cxx : cxx;
   const o: LevelObject = {
     id: nid(),
     shape: 'blob',
-    x: snapN(cxx),
+    x: snapN(cx),
     y: snapN(cyy),
     angle: 0,
     material: curMat,
     anchored: false,
     path: null,
     note: '',
-    brushR: BRUSH,
-    pts: pts.map((p) => [Math.round(p.x - cxx), Math.round(p.y - cyy)] as [number, number]),
+    brushR,
+    pts: pts.map(
+      (p) =>
+        [Math.round((mirrored ? -1 : 1) * (p.x - cxx)), Math.round(p.y - cyy)] as [number, number],
+    ),
   };
+  if (paintColor) o.color = paintColor;
+  if (paintAlpha < 0.995) o.alpha = Math.round(paintAlpha * 100) / 100;
+  if (paintFill) o.fill = true;
+  return o;
+}
+
+function finishPaint(pts: { x: number; y: number }[], brushR: number, line = false): void {
+  if (!pts.length) return;
+  snap();
+  // ruler strokes carry only endpoints; freehand ones get a light smoothing pass
+  const stroke = line ? densify(pts, Math.max(brushR * 1.2, 8), 200) : smoothStroke(pts);
+  const o = strokeToBlob(stroke, brushR, false);
   level.objects.push(o);
+  // 🪞 mirror: the twin lands across the board's vertical centerline
+  if (paintMirror) level.objects.push(strokeToBlob(stroke, brushR, true));
   selId = o.id;
   if (settings.afterPlace === 'adjust') setArmed(null, true);
+  syncInspector();
+}
+
+/** 🧽 eraser: remove the paint stroke or text piece under the finger. Other
+    pieces (planks, villains, structure) are safe from an accidental scrub. */
+function eraseAt(p: { x: number; y: number }): void {
+  const hit = hitObject(p);
+  if (!hit || !(hit.shape === 'blob' || hit.text != null)) return;
+  if (gesture && gesture.kind === 'erase' && !gesture.snapped) {
+    snap();
+    gesture.snapped = true;
+  }
+  level.objects = level.objects.filter((o) => o.id !== hit.id);
+  if (selId === hit.id) selId = null;
+  if (passthroughId === hit.id) passthroughId = null;
+  scheduleAutosave();
   syncInspector();
 }
 
@@ -725,10 +1194,23 @@ cv.addEventListener('pointerdown', (e) => {
     return;
   }
 
+  // eyedropper: the next tap grabs a piece's color instead of doing anything else
+  if (pickingColor) {
+    applyEyedrop(hitObject(p));
+    return;
+  }
+
   if (handMode === 'view' && !armed) {
     if (spointers.size === 2) {
       const [a, b] = [...spointers.values()];
-      gesture = { kind: 'vzoom', d0: Math.hypot(a.sx - b.sx, a.sy - b.sy), m0: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 }, z0: view.zoom, ox0: view.ox, oy0: view.oy };
+      gesture = {
+        kind: 'vzoom',
+        d0: Math.hypot(a.sx - b.sx, a.sy - b.sy),
+        m0: { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 },
+        z0: view.zoom,
+        ox0: view.ox,
+        oy0: view.oy,
+      };
     } else {
       const now = performance.now();
       if (now - lastTapT < 300) {
@@ -740,9 +1222,19 @@ cv.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  if (pointers.size === 2 && selected() && gesture && (gesture.kind === 'move' || gesture.kind === 'pinch')) {
+  if (
+    pointers.size === 2 &&
+    selected() &&
+    gesture &&
+    (gesture.kind === 'move' || gesture.kind === 'pinch')
+  ) {
     const [a, b] = [...pointers.values()];
-    gesture = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), a0: Math.atan2(b.y - a.y, b.x - a.x), o: JSON.parse(JSON.stringify(selected())) };
+    gesture = {
+      kind: 'pinch',
+      d0: Math.hypot(a.x - b.x, a.y - b.y),
+      a0: Math.atan2(b.y - a.y, b.x - a.x),
+      o: JSON.parse(JSON.stringify(selected())),
+    };
     return;
   }
   if (pointers.size > 1) return;
@@ -755,14 +1247,29 @@ cv.addEventListener('pointerdown', (e) => {
       const hitR = 16 / view.zoom + 4;
       if (corners.some((c) => near(p, c.x, c.y, hitR))) {
         snap();
-        gesture = { kind: 'rotate', cx: rotSel.x, cy: rotSel.y, a0: rotSel.angle || 0, pa0: Math.atan2(p.y - rotSel.y, p.x - rotSel.x) };
+        gesture = {
+          kind: 'rotate',
+          cx: rotSel.x,
+          cy: rotSel.y,
+          a0: rotSel.angle || 0,
+          pa0: Math.atan2(p.y - rotSel.y, p.x - rotSel.x),
+        };
         return;
       }
     }
   }
 
   if (armed && armed.shape === 'blob') {
-    gesture = { kind: 'paint', pts: [p] };
+    if (paintTool === 'text') {
+      openTextModal(p);
+      return;
+    }
+    if (paintTool === 'eraser') {
+      gesture = { kind: 'erase', snapped: false };
+      eraseAt(p);
+      return;
+    }
+    gesture = { kind: 'paint', pts: [p], r: paintR(), tool: paintTool, line: paintLine };
     return;
   }
 
@@ -772,7 +1279,11 @@ cv.addEventListener('pointerdown', (e) => {
     gesture = { kind: 'path' };
     return;
   }
-  if (level.meta.mode === 'drive' && level.meta.goal && near(p, level.meta.goal.x, level.meta.goal.y, level.meta.goal.r + 10)) {
+  if (
+    level.meta.mode === 'drive' &&
+    level.meta.goal &&
+    near(p, level.meta.goal.x, level.meta.goal.y, level.meta.goal.r + 10)
+  ) {
     snap();
     gesture = { kind: 'goal' };
     selId = null;
@@ -818,8 +1329,19 @@ cv.addEventListener('pointermove', (e) => {
   const sel = selected();
 
   if (gesture.kind === 'paint') {
-    const last = gesture.pts[gesture.pts.length - 1];
-    if (Math.hypot(p.x - last.x, p.y - last.y) > BRUSH * 0.6 && gesture.pts.length < 70) gesture.pts.push(p);
+    if (gesture.line) {
+      // 📏 ruler: the stroke is just start → fingertip; densified on release
+      gesture.pts = [gesture.pts[0], p];
+    } else {
+      const spec = PAINT_TOOLS[gesture.tool];
+      // spacing floor keeps a fine pencil from spending its point budget in an inch
+      const spacing = Math.max(gesture.r * 0.6, spec.minSpacing);
+      const last = gesture.pts[gesture.pts.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) > spacing && gesture.pts.length < spec.maxPts)
+        gesture.pts.push(p);
+    }
+  } else if (gesture.kind === 'erase') {
+    eraseAt(p);
   } else if (gesture.kind === 'vpan') {
     view.ox += sp.sx - prevS.sx;
     view.oy += sp.sy - prevS.sy;
@@ -883,7 +1405,12 @@ cv.addEventListener('pointermove', (e) => {
     // below its y — keep the base planted on the floor, never buried in it.
     // Drop/drive draw a start pad instead, which only needs modest clearance.
     const minLift = level.meta.mode === 'slingshot' ? SLING_POLE_BOTTOM : 60;
-    const c = clampToWorld(p.x, Math.min(p.y, level.world.floorY - minLift), level.world.w, level.world.h);
+    const c = clampToWorld(
+      p.x,
+      Math.min(p.y, level.world.floorY - minLift),
+      level.world.w,
+      level.world.h,
+    );
     level.slingshot.x = c.x;
     level.slingshot.y = c.y;
   } else if (gesture.kind === 'goal' && level.meta.goal) {
@@ -903,7 +1430,7 @@ function endPointer(e: PointerEvent): void {
   if (pointers.size > 0) return;
   const sel = selected();
   if (gesture) {
-    if (gesture.kind === 'paint') finishPaint(gesture.pts);
+    if (gesture.kind === 'paint') finishPaint(gesture.pts, gesture.r, gesture.line);
     if (gesture.kind === 'move' && sel) {
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
@@ -1060,7 +1587,8 @@ function placeSelwrap(): void {
   const pr = cx + rad;
   const pt = cy - rad;
   const pb = cy + rad;
-  const overlaps = (l: number, t: number): boolean => !(l + ww < pl || l > pr || t + wh < pt || t > pb);
+  const overlaps = (l: number, t: number): boolean =>
+    !(l + ww < pl || l > pr || t + wh < pt || t > pb);
   // the nudge pad parks in the corner diagonally opposite the piece (see
   // syncNudge, which runs before this) — treat its rectangle as occupied too
   // so the popup never covers the arrows.
@@ -1181,6 +1709,11 @@ for (const pr of SHAPES) {
       openEmoji('stamp');
       return;
     }
+    // the double-tap: the second tap on an armed 🖌 opens the tool picker
+    if (armed === pr && pr.shape === 'blob') {
+      openPaintTools();
+      return;
+    }
     if (armed === pr) {
       setArmed(null);
       return;
@@ -1207,7 +1740,7 @@ function drawIco(): void {
     } else if (pr.shape === 'emoji') {
       ico.textContent = curEmoji;
     } else if (pr.shape === 'blob') {
-      ico.textContent = '🖌';
+      ico.textContent = PAINT_TOOLS[paintTool].icon;
     } else {
       ico.innerHTML = `<span class="shp" style="width:20px;height:20px;border-radius:50%;background:${col}"></span>`;
     }
@@ -1288,7 +1821,9 @@ function renderEmojiResults(query: string): void {
     box.appendChild(b);
   }
 }
-$<HTMLInputElement>('esearch').addEventListener('input', (e) => renderEmojiResults((e.target as HTMLInputElement).value));
+$<HTMLInputElement>('esearch').addEventListener('input', (e) =>
+  renderEmojiResults((e.target as HTMLInputElement).value),
+);
 
 function openEmoji(mode2: 'stamp' | 'hero' | 'newlevel'): void {
   emojiFor = mode2;
@@ -1371,7 +1906,8 @@ $('set-mode').onclick = () => {
   } else if (level.meta.mode === 'drop') {
     level.meta.mode = 'drive';
     // give drive levels a goal zone to reach if they don't have one yet
-    if (!level.meta.goal) level.meta.goal = { x: level.world.w - 220, y: level.world.floorY - 60, r: 44 };
+    if (!level.meta.goal)
+      level.meta.goal = { x: level.world.w - 220, y: level.world.floorY - 60, r: 44 };
   } else {
     level.meta.mode = 'slingshot';
   }
@@ -1388,13 +1924,23 @@ $('set-shape').onclick = () => {
   const slingLift = level.meta.mode === 'slingshot' ? SLING_POLE_BOTTOM : 20;
   level.slingshot.x = Math.max(20, Math.min(level.slingshot.x, level.world.w - 20));
   level.slingshot.y = Math.max(20, Math.min(level.slingshot.y, level.world.floorY - slingLift));
-  const oob = level.objects.filter((o) => o.x < 0 || o.x > level.world.w || o.y < 0 || o.y > level.world.h).length;
+  const oob = level.objects.filter(
+    (o) => o.x < 0 || o.x > level.world.w || o.y < 0 || o.y > level.world.h,
+  ).length;
   resize();
   syncSettings();
-  toast(oob ? `${goTall ? 'tall' : 'wide'} world — ${oob} piece${oob > 1 ? 's' : ''} now out of bounds` : `${goTall ? 'tall' : 'wide'} world`);
+  toast(
+    oob
+      ? `${goTall ? 'tall' : 'wide'} world — ${oob} piece${oob > 1 ? 's' : ''} now out of bounds`
+      : `${goTall ? 'tall' : 'wide'} world`,
+  );
 };
 function modeLabel(m: Level['meta']['mode']): string {
-  return m === 'drive' ? '🏁 drive (Red Ball)' : m === 'drop' ? '🪂 drop (tap to hop)' : '🎯 slingshot';
+  return m === 'drive'
+    ? '🏁 drive (Red Ball)'
+    : m === 'drop'
+      ? '🪂 drop (tap to hop)'
+      : '🎯 slingshot';
 }
 
 /* Hero bounciness (drive mode) — meta.bounce is restitution 0–1; the slider is a
@@ -1416,7 +1962,8 @@ bounceEl.addEventListener('change', () => {
 });
 
 function syncSettings(): void {
-  $('set-after').textContent = settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
+  $('set-after').textContent =
+    settings.afterPlace === 'adjust' ? '→ ✋ adjust new piece' : 'keep stamping';
   $('set-solid').textContent = settings.solid ? 'on — no overlaps' : 'off — free placement';
   $('set-theme').textContent = themeLabel(settings.theme, systemDarkMq.matches);
   $('set-mode').textContent = modeLabel(level.meta.mode);
@@ -1450,7 +1997,9 @@ document.querySelectorAll<HTMLElement>('.bgw[data-bg]').forEach((b) =>
 );
 function syncBg(): void {
   const cur = level.meta.background || 'grid';
-  document.querySelectorAll<HTMLElement>('.bgw[data-bg]').forEach((b) => b.classList.toggle('on', b.dataset.bg === cur));
+  document
+    .querySelectorAll<HTMLElement>('.bgw[data-bg]')
+    .forEach((b) => b.classList.toggle('on', b.dataset.bg === cur));
   const cs = $('bg-custom');
   if (level.meta.backgroundImage) {
     cs.style.display = 'inline-block';
@@ -1472,7 +2021,11 @@ $<HTMLInputElement>('bg-file').addEventListener('change', (e) => {
     level.meta.backgroundImage = url;
     level.meta.background = 'custom';
     syncBg();
-    toast(url.length > 2500000 ? 'backdrop imported — heads up: it makes the schema JSON heavy' : 'backdrop imported');
+    toast(
+      url.length > 2500000
+        ? 'backdrop imported — heads up: it makes the schema JSON heavy'
+        : 'backdrop imported',
+    );
   };
   rd.onerror = () => toast('could not read that image');
   rd.readAsDataURL(f);
@@ -1501,10 +2054,15 @@ function syncInspector(): void {
   const sel = selected();
   $('selwrap').style.display = sel ? 'block' : 'none';
   const shown = sel ? sel.material : curMat;
-  document.querySelectorAll<HTMLElement>('.swwrap[data-m]').forEach((c) => c.classList.toggle('on', c.dataset.m === shown));
+  document
+    .querySelectorAll<HTMLElement>('.swwrap[data-m]')
+    .forEach((c) => c.classList.toggle('on', c.dataset.m === shown));
+  syncPaintRow();
   syncNudge();
   if (!sel) return;
   $('tg-anchor').classList.toggle('on', !!sel.anchored);
+  $('tg-color').classList.toggle('on', !!sel.color);
+  $('tg-text').style.display = sel.text != null ? 'flex' : 'none';
   const pass = $('tg-pass');
   pass.style.display = settings.solid ? 'flex' : 'none';
   pass.classList.toggle('on', sel.id === passthroughId);
@@ -1531,10 +2089,13 @@ function syncReadout(): void {
   const sel = selected();
   if (!sel) return;
   let size: string;
-  if (sel.shape === 'box' || sel.shape === 'tri') size = `${Math.round(sel.w!)}×${Math.round(sel.h!)}`;
-  else if (sel.shape === 'blob') size = `~${sel.pts!.length}pt brush ${Math.round(sel.brushR ?? BRUSH)}`;
+  if (sel.shape === 'box' || sel.shape === 'tri')
+    size = `${Math.round(sel.w!)}×${Math.round(sel.h!)}`;
+  else if (sel.shape === 'blob')
+    size = `~${sel.pts!.length}pt brush ${Math.round(sel.brushR ?? BRUSH)}`;
   else size = `r${Math.round(sel.r!)}`;
-  $('readout').textContent = `${Math.round(sel.x)},${Math.round(sel.y)} · ${size} · ${Math.round(sel.angle || 0)}°`;
+  $('readout').textContent =
+    `${Math.round(sel.x)},${Math.round(sel.y)} · ${size} · ${Math.round(sel.angle || 0)}°`;
 }
 document.querySelectorAll<HTMLElement>('.swwrap[data-m]').forEach((c) =>
   c.addEventListener('click', () => {
@@ -1653,7 +2214,11 @@ $<HTMLInputElement>('sprite-file').addEventListener('change', (e) => {
     snap();
     s.sprite = String(rd.result);
     syncInspector();
-    toast(String(rd.result).length > 2000000 ? 'sprite set — heads up: big images make the schema JSON heavy' : 'sprite set — the image skins this piece');
+    toast(
+      String(rd.result).length > 2000000
+        ? 'sprite set — heads up: big images make the schema JSON heavy'
+        : 'sprite set — the image skins this piece',
+    );
   };
   rd.onerror = () => toast('could not read that image');
   rd.readAsDataURL(f);
@@ -1737,6 +2302,463 @@ $('ef-none').onclick = () => {
   $('efmodal').style.display = 'none';
   toast('hit effect cleared');
 };
+/* ------------------ paint tools: picker, sizes, color ------------------ */
+const paintPreset = SHAPES.find((s) => s.shape === 'blob')!;
+
+function openPaintTools(): void {
+  const list = $('ptlist');
+  list.innerHTML = '';
+  for (const key of PAINT_TOOL_KEYS) {
+    const spec = PAINT_TOOLS[key];
+    const opt = document.createElement('div');
+    opt.className = 'efopt' + (paintTool === key ? ' on' : '');
+    opt.innerHTML = `<span class="efico">${spec.icon}</span><span><span class="efname">${spec.name}</span><br /><span class="efblurb">${spec.blurb}</span></span>`;
+    opt.addEventListener('click', () => {
+      paintTool = key;
+      savePrefs();
+      if (!armed || armed.shape !== 'blob') setArmed(paintPreset);
+      drawIco();
+      syncPaintRow();
+      $('ptmodal').style.display = 'none';
+    });
+    list.appendChild(opt);
+  }
+  $('ptmodal').style.display = 'flex';
+}
+$('pt-close').onclick = () => ($('ptmodal').style.display = 'none');
+$('pt-tool').onclick = () => openPaintTools();
+
+/** The paint row (tool · color · S/M/L · 📏🪣🪞) rides beside the materials
+    while 🖌 is armed. The color swatch falls back to the material's own paint.
+    The eraser needs only the tool button; text keeps color + sizes but the
+    stroke toggles make no sense for it. */
+function syncPaintRow(): void {
+  const show = mode === 'edit' && !!armed && armed.shape === 'blob';
+  $('paintrow').style.display = show ? 'flex' : 'none';
+  if (!show) return;
+  $('pt-tool').textContent = PAINT_TOOLS[paintTool].icon;
+  const stroke = paintTool === 'brush' || paintTool === 'pencil';
+  $('pt-color').style.display = paintTool === 'eraser' ? 'none' : '';
+  (document.querySelector('.szsel') as HTMLElement).style.display =
+    paintTool === 'eraser' ? 'none' : 'flex';
+  for (const id of ['pt-line', 'pt-fill', 'pt-mirror']) $(id).style.display = stroke ? '' : 'none';
+  $('pt-line').classList.toggle('on', paintLine);
+  $('pt-fill').classList.toggle('on', paintFill);
+  $('pt-mirror').classList.toggle('on', paintMirror);
+  $('pt-colorsw').style.background = paintColor ?? MATERIALS[curMat].color;
+  $('pt-color').title = paintColor
+    ? `stroke color ${paintColor} — tap for the color wheel`
+    : 'stroke color (material paint) — tap for the color wheel';
+  document
+    .querySelectorAll<HTMLElement>('.szbtn')
+    .forEach((b) => b.classList.toggle('on', Number(b.dataset.sz) === paintSize[paintTool]));
+}
+$('pt-line').onclick = () => {
+  paintLine = !paintLine;
+  savePrefs();
+  syncPaintRow();
+};
+$('pt-fill').onclick = () => {
+  paintFill = !paintFill;
+  savePrefs();
+  syncPaintRow();
+};
+$('pt-mirror').onclick = () => {
+  paintMirror = !paintMirror;
+  savePrefs();
+  syncPaintRow();
+};
+document.querySelectorAll<HTMLButtonElement>('.szbtn').forEach((b) =>
+  b.addEventListener('click', () => {
+    paintSize[paintTool] = Number(b.dataset.sz);
+    savePrefs();
+    syncPaintRow();
+  }),
+);
+$('pt-color').onclick = () => openColorWheel('paint');
+
+/* ------------------------------ text tool ------------------------------ */
+let textAt: { x: number; y: number } | null = null; // pending tap position (place mode)
+let textEditId: string | null = null; // piece being re-worded (edit mode)
+
+/** Box dims that hug the glyphs — shared formula with render.ts so the
+    physics body always matches what's drawn. */
+function measureTextPiece(text: string, px: number): { w: number; h: number } {
+  ctx.save();
+  ctx.font = textFont(px);
+  const w = Math.max(px * 0.6, Math.ceil(ctx.measureText(text).width + px * 0.25));
+  ctx.restore();
+  return { w, h: Math.round(px * TEXT_H_PER_PX) };
+}
+
+function openTextModal(at: { x: number; y: number } | null, editId?: string): void {
+  textAt = at;
+  textEditId = editId ?? null;
+  const input = $<HTMLInputElement>('txinput');
+  input.value = editId ? (level.objects.find((o) => o.id === editId)?.text ?? '') : '';
+  $('tx-place').textContent = editId ? 'Save' : 'Place text';
+  $('txmodal').style.display = 'flex';
+  setTimeout(() => input.focus(), 60);
+}
+$('tx-cancel').onclick = () => ($('txmodal').style.display = 'none');
+$('tx-place').onclick = () => {
+  const text = $<HTMLInputElement>('txinput').value.trim();
+  if (!text) {
+    $('txmodal').style.display = 'none';
+    return;
+  }
+  if (textEditId) {
+    const o = level.objects.find((x) => x.id === textEditId);
+    if (o && o.text !== text) {
+      snap();
+      o.text = text;
+      // re-measure at the piece's current scale so the body still hugs the glyphs
+      const px = (o.h ?? PAINT_TOOLS.text.sizes[1]) / TEXT_H_PER_PX;
+      o.w = measureTextPiece(text, px).w;
+      scheduleAutosave();
+    }
+  } else if (textAt) {
+    snap();
+    const px = PAINT_TOOLS.text.sizes[paintSize.text];
+    const { w, h } = measureTextPiece(text, px);
+    const c = clampToWorld(textAt.x, textAt.y, level.world.w, level.world.h);
+    const o: LevelObject = {
+      id: nid(),
+      shape: 'box',
+      x: snapN(c.x),
+      y: snapN(c.y),
+      w,
+      h,
+      angle: 0,
+      material: curMat,
+      anchored: false,
+      path: null,
+      note: '',
+      text,
+    };
+    if (paintColor) o.color = paintColor;
+    o.y = clampAboveFloor(o as GeomObject, level.world.floorY);
+    settlePassthrough();
+    level.objects.push(o);
+    selId = o.id;
+    if (settings.solid) passthroughId = o.id;
+    if (settings.afterPlace === 'adjust') setArmed(null, true);
+  }
+  $('txmodal').style.display = 'none';
+  syncInspector();
+};
+$<HTMLInputElement>('txinput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('tx-place').click();
+});
+$('tg-text').onclick = () => {
+  const s = selected();
+  if (s && s.text != null) openTextModal(null, s.id);
+};
+
+/* ----------------------------- color wheel ----------------------------- */
+let colorTarget: 'paint' | 'selection' = 'paint';
+let colorSnapped = false; // one undo step per popup session (selection target)
+let colorPicked: string | null = null; // last color actually chosen this session
+let colH = 0.3;
+let colS = 0.8;
+let colV = 1;
+
+function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  const [r, g, b] = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ][((i % 6) + 6) % 6];
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+const rgbToHex = (r: number, g: number, b: number): string =>
+  '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+function hexToHsv(hex: string): { h: number; s: number; v: number } {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const mx = Math.max(r, g, b);
+  const d = mx - Math.min(r, g, b);
+  let h = 0;
+  if (d) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+    if (h < 0) h += 1;
+  }
+  return { h, s: mx ? d / mx : 0, v: mx };
+}
+
+const cwheel = $<HTMLCanvasElement>('cwheel');
+const cwx = cwheel.getContext('2d')!;
+function drawWheel(): void {
+  const S = cwheel.width;
+  const R = S / 2;
+  const img = cwx.createImageData(S, S);
+  const d = img.data;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const dx = x - R;
+      const dy = y - R;
+      const dist = Math.hypot(dx, dy);
+      if (dist > R) continue;
+      let h = Math.atan2(dy, dx) / (2 * Math.PI);
+      if (h < 0) h += 1;
+      const [r, g, b] = hsvToRgb(h, Math.min(1, dist / R), colV);
+      const i = (y * S + x) * 4;
+      d[i] = r;
+      d[i + 1] = g;
+      d[i + 2] = b;
+      d[i + 3] = Math.max(0, Math.min(1, R - dist + 1)) * 255; // soft rim
+    }
+  }
+  cwx.clearRect(0, 0, S, S);
+  cwx.putImageData(img, 0, 0);
+  // marker at the current hue/sat
+  const ang = colH * 2 * Math.PI;
+  cwx.lineWidth = 2.5;
+  cwx.strokeStyle = colV > 0.6 ? '#000' : '#fff';
+  cwx.beginPath();
+  cwx.arc(R + Math.cos(ang) * colS * (R - 3), R + Math.sin(ang) * colS * (R - 3), 7, 0, 7);
+  cwx.stroke();
+}
+
+function curHex(): string {
+  const [r, g, b] = hsvToRgb(colH, colS, colV);
+  return rgbToHex(r, g, b);
+}
+/** Apply the wheel's current color live: to the selected piece, or as the
+    paint color for new strokes/text. */
+function commitColor(): void {
+  const hex = curHex();
+  colorPicked = hex;
+  $('cprev').style.background = hex;
+  $<HTMLInputElement>('chex').value = hex;
+  if (colorTarget === 'selection') {
+    const s = selected();
+    if (s) {
+      if (!colorSnapped) {
+        snap();
+        colorSnapped = true;
+      }
+      s.color = hex;
+      $('tg-color').classList.add('on');
+      scheduleAutosave();
+    }
+  } else {
+    paintColor = hex;
+    savePrefs();
+  }
+  syncPaintRow();
+}
+function setHsvFromHex(hex: string): void {
+  const { h, s, v } = hexToHsv(hex);
+  colH = h;
+  colS = s;
+  colV = v;
+  $<HTMLInputElement>('cval').value = String(Math.round(Math.max(0.08, v) * 100));
+}
+function renderColorRecents(): void {
+  const box = $('crecents');
+  box.innerHTML = '';
+  $('creclbl').style.display = paintRecents.length ? '' : 'none';
+  for (const hex of paintRecents) {
+    const b = document.createElement('button');
+    b.style.background = hex;
+    b.title = hex;
+    b.addEventListener('click', () => {
+      setHsvFromHex(hex);
+      drawWheel();
+      commitColor();
+    });
+    box.appendChild(b);
+  }
+}
+/** Reflect an opacity value (0–1) into the slider + its % label. */
+function syncAlphaRow(alpha: number): void {
+  $<HTMLInputElement>('calpha').value = String(Math.round(alpha * 100));
+  $('calphaval').textContent = `${Math.round(alpha * 100)}%`;
+}
+function openColorWheel(target: 'paint' | 'selection'): void {
+  colorTarget = target;
+  colorSnapped = false;
+  colorPicked = null;
+  const sel = selected();
+  const base =
+    target === 'selection'
+      ? (sel?.color ?? MATERIALS[sel?.material ?? curMat].color)
+      : (paintColor ?? MATERIALS[curMat].color);
+  setHsvFromHex(base);
+  syncAlphaRow(target === 'selection' ? (sel?.alpha ?? 1) : paintAlpha);
+  $('cprev').style.background = base;
+  $<HTMLInputElement>('chex').value = base;
+  $('ctitle').textContent =
+    target === 'selection'
+      ? 'COLOR — recolor the selected piece. Drag the wheel; the slider sets brightness. “Material color” goes back to the material’s own paint.'
+      : 'COLOR — the paint for new strokes and text. Drag the wheel; the slider sets brightness. “Material color” goes back to the material’s own paint.';
+  renderColorRecents();
+  drawWheel();
+  $('cmodal').style.display = 'flex';
+}
+function wheelPick(e: PointerEvent): void {
+  const rect = cwheel.getBoundingClientRect();
+  const R = cwheel.width / 2;
+  const x = ((e.clientX - rect.left) * cwheel.width) / rect.width - R;
+  const y = ((e.clientY - rect.top) * cwheel.height) / rect.height - R;
+  let h = Math.atan2(y, x) / (2 * Math.PI);
+  if (h < 0) h += 1;
+  colH = h;
+  colS = Math.min(1, Math.hypot(x, y) / R);
+  drawWheel();
+  commitColor();
+}
+{
+  let down = false;
+  cwheel.addEventListener('pointerdown', (e) => {
+    down = true;
+    cwheel.setPointerCapture(e.pointerId);
+    wheelPick(e);
+  });
+  cwheel.addEventListener('pointermove', (e) => {
+    if (down) wheelPick(e);
+  });
+  const up = (): void => {
+    down = false;
+  };
+  cwheel.addEventListener('pointerup', up);
+  cwheel.addEventListener('pointercancel', up);
+}
+$<HTMLInputElement>('cval').addEventListener('input', () => {
+  colV = Number($<HTMLInputElement>('cval').value) / 100;
+  drawWheel();
+  commitColor();
+});
+/* Opacity applies live, like the wheel: to the selected piece, or as the
+   stroke opacity for new paint and text. Full opacity drops the field. */
+$<HTMLInputElement>('calpha').addEventListener('input', () => {
+  const a = Number($<HTMLInputElement>('calpha').value) / 100;
+  syncAlphaRow(a);
+  if (colorTarget === 'selection') {
+    const s = selected();
+    if (!s) return;
+    if (!colorSnapped) {
+      snap();
+      colorSnapped = true;
+    }
+    if (a >= 0.995) delete s.alpha;
+    else s.alpha = Math.round(a * 100) / 100;
+    scheduleAutosave();
+  } else {
+    paintAlpha = a;
+    savePrefs();
+  }
+});
+$<HTMLInputElement>('chex').addEventListener('change', () => {
+  const el = $<HTMLInputElement>('chex');
+  let v = el.value.trim();
+  if (/^[0-9a-fA-F]{6}$/.test(v)) v = '#' + v;
+  if (!COLOR_RE.test(v)) {
+    el.value = curHex();
+    return;
+  }
+  setHsvFromHex(v.toLowerCase());
+  drawWheel();
+  commitColor();
+});
+$('c-close').onclick = () => {
+  // quick-save the chosen color into the 5-slot recents
+  if (colorPicked) {
+    paintRecents = [colorPicked, ...paintRecents.filter((c) => c !== colorPicked)].slice(0, 5);
+    savePrefs();
+  }
+  $('cmodal').style.display = 'none';
+  syncInspector();
+};
+$('c-material').onclick = () => {
+  colorPicked = null;
+  if (colorTarget === 'selection') {
+    const s = selected();
+    if (s && (s.color || s.alpha != null)) {
+      if (!colorSnapped) {
+        snap();
+        colorSnapped = true;
+      }
+      delete s.color;
+      delete s.alpha;
+      scheduleAutosave();
+    }
+  } else {
+    paintColor = null;
+    paintAlpha = 1;
+    savePrefs();
+    syncPaintRow();
+  }
+  $('cmodal').style.display = 'none';
+  syncInspector();
+};
+$('tg-color').onclick = () => {
+  if (selected()) openColorWheel('selection');
+};
+
+/* 💧 eyedropper: close the popup, and the next tap on the board grabs that
+   piece's color (its tint, or its material's paint) into the same target. */
+let pickingColor: 'paint' | 'selection' | null = null;
+$('c-pick').onclick = () => {
+  pickingColor = colorTarget;
+  $('cmodal').style.display = 'none';
+  toast('eyedropper — tap a piece to grab its color');
+};
+function applyEyedrop(hit: LevelObject | null): void {
+  const target = pickingColor!;
+  pickingColor = null;
+  if (!hit) {
+    toast('eyedropper cancelled');
+    return;
+  }
+  const hex = hit.color ?? MATERIALS[hit.material].color;
+  if (target === 'selection') {
+    const s = selected();
+    if (s) {
+      snap();
+      s.color = hex;
+    }
+  } else {
+    paintColor = hex;
+  }
+  paintRecents = [hex, ...paintRecents.filter((c) => c !== hex)].slice(0, 5);
+  savePrefs();
+  syncPaintRow();
+  syncInspector();
+  toast(`picked ${hex}`);
+}
+
+/* ---------------------- z-order: front / back -------------------------- */
+/* Array order IS the draw order (and the tap-hit order), so layering is just
+   moving the piece within level.objects. Physics doesn't care. */
+$('tg-front').onclick = () => {
+  const s = selected();
+  if (!s || level.objects[level.objects.length - 1] === s) return;
+  snap();
+  level.objects = [...level.objects.filter((o) => o.id !== s.id), s];
+  toast('brought to front');
+};
+$('tg-back').onclick = () => {
+  const s = selected();
+  if (!s || level.objects[0] === s) return;
+  snap();
+  level.objects = [s, ...level.objects.filter((o) => o.id !== s.id)];
+  toast('sent to back');
+};
+
 /* Haptic tick on the corner buttons — pointerdown, not click, so the buzz
    lands with the finger. Guarded: vibrate is absent on iOS Safari/desktop. */
 function buzz(): void {
@@ -1840,7 +2862,8 @@ $('n-mic').onclick = () => {
     recog.interimResults = false;
     recog.onresult = (ev: any) => {
       let add = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) add += ev.results[i][0].transcript + ' ';
+      for (let i = ev.resultIndex; i < ev.results.length; i++)
+        if (ev.results[i].isFinal) add += ev.results[i][0].transcript + ' ';
       if (add) {
         const t = $<HTMLTextAreaElement>('notetext');
         t.value = (t.value ? t.value.replace(/\s+$/, '') + ' ' : '') + add.trim();
@@ -1848,7 +2871,11 @@ $('n-mic').onclick = () => {
     };
     recog.onerror = (e: any) => {
       stopDictation();
-      toast(e.error === 'not-allowed' ? 'mic blocked — check permissions' : 'dictation error: ' + e.error);
+      toast(
+        e.error === 'not-allowed'
+          ? 'mic blocked — check permissions'
+          : 'dictation error: ' + e.error,
+      );
     };
     recog.onend = () => {
       if (recActive) stopDictation();
@@ -1866,7 +2893,12 @@ $('n-mic').onclick = () => {
 $('b-schema').onclick = () => {
   $<HTMLTextAreaElement>('json').value = serializeLevel(level);
   $('err').textContent = '';
-  applyPdsLink($<HTMLAnchorElement>('lex-pdslink'), $('lex-pdsnote'), pdsview.lexiconUrl(), 'lexicon');
+  applyPdsLink(
+    $<HTMLAnchorElement>('lex-pdslink'),
+    $('lex-pdsnote'),
+    pdsview.lexiconUrl(),
+    'lexicon',
+  );
   $('modal').style.display = 'flex';
 };
 
@@ -1992,8 +3024,15 @@ $('sv-go').onclick = () => {
    the user just captured — with a link to view it on the PDS below. */
 function showSaveConfirm(l: Level): void {
   renderThumb($<HTMLCanvasElement>('sv-thumb'), l);
-  $('sv-caption').textContent = l.meta.scene ? `“${l.meta.name}” · ${l.meta.scene}` : `“${l.meta.name}”`;
-  applyPdsLink($<HTMLAnchorElement>('sv-pdslink'), $('sv-pdsnote'), pdsview.levelUrl(l.meta.name), 'level');
+  $('sv-caption').textContent = l.meta.scene
+    ? `“${l.meta.name}” · ${l.meta.scene}`
+    : `“${l.meta.name}”`;
+  applyPdsLink(
+    $<HTMLAnchorElement>('sv-pdslink'),
+    $('sv-pdsnote'),
+    pdsview.levelUrl(l.meta.name),
+    'level',
+  );
   $('svmodal').style.display = 'flex';
 }
 $('sv-done').onclick = () => ($('svmodal').style.display = 'none');
@@ -2024,11 +3063,14 @@ function renderLib(): void {
     if (!scenes.has(key)) scenes.set(key, { scene: key, cards: [] });
     return scenes.get(key)!;
   };
-  for (const c of committedLevels()) ensure(c.scene).cards.push({ name: c.name, level: c.level, committed: true });
-  for (const d of listDrafts()) ensure(d.scene).cards.push({ name: d.name, level: d.level, committed: false });
+  for (const c of committedLevels())
+    ensure(c.scene).cards.push({ name: c.name, level: c.level, committed: true });
+  for (const d of listDrafts())
+    ensure(d.scene).cards.push({ name: d.name, level: d.level, committed: false });
 
   if (scenes.size === 0) {
-    list.innerHTML = '<div style="color:var(--dim);font-size:12px">nothing here yet — name the current level above and Save, or commit levels under /levels/.</div>';
+    list.innerHTML =
+      '<div style="color:var(--dim);font-size:12px">nothing here yet — name the current level above and Save, or commit levels under /levels/.</div>';
     return;
   }
   for (const row of scenes.values()) {
@@ -2096,8 +3138,14 @@ function newSession(): void {
   hideBanner();
   lastStatus = 'playing';
   session?.destroy();
-  playKind = level.meta.mode === 'drive' ? 'drive' : level.meta.mode === 'drop' ? 'drop' : 'slingshot';
-  session = playKind === 'drive' ? new DriveSession(level) : playKind === 'drop' ? new DropSession(level) : new PlaySession(level);
+  playKind =
+    level.meta.mode === 'drive' ? 'drive' : level.meta.mode === 'drop' ? 'drop' : 'slingshot';
+  session =
+    playKind === 'drive'
+      ? new DriveSession(level)
+      : playKind === 'drop'
+        ? new DropSession(level)
+        : new PlaySession(level);
   $('playhint').textContent =
     playKind === 'drive'
       ? 'steer with ◀ ▶ · ⤒ to jump · reach the 🏁 goal'
@@ -2232,7 +3280,8 @@ function drawPlay(dt: number): void {
       banner.textContent = playKind === 'slingshot' ? 'LEVEL CLEAR' : 'GOAL! 🏁';
       banner.classList.remove('fail');
       banner.style.display = 'block';
-      if (playCtx.source === 'shell' && playCtx.index < playCtx.levels.length - 1) $('nextbtn').style.display = 'block';
+      if (playCtx.source === 'shell' && playCtx.index < playCtx.levels.length - 1)
+        $('nextbtn').style.display = 'block';
     } else if (session.status === 'failed') {
       banner.textContent = playKind === 'drive' ? 'OUCH — ↺ retry' : 'PROTECT FAILED';
       banner.classList.add('fail');
@@ -2289,12 +3338,28 @@ function shellEntries(): LevelEntry[] {
   for (const c of committedLevels()) {
     const key = manageKey('committed', c.scene, c.name);
     const m = getManage(key);
-    out.push({ source: 'committed', scene: c.scene || '(no scene)', name: c.name, level: c.level, createdAt: 0, archived: m.archived, tags: m.tags });
+    out.push({
+      source: 'committed',
+      scene: c.scene || '(no scene)',
+      name: c.name,
+      level: c.level,
+      createdAt: 0,
+      archived: m.archived,
+      tags: m.tags,
+    });
   }
   for (const d of listDrafts()) {
     const key = manageKey('draft', d.scene, d.name);
     const m = getManage(key);
-    out.push({ source: 'draft', scene: d.scene || '(no scene)', name: d.name, level: d.level, createdAt: d.createdAt ?? d.savedAt, archived: m.archived, tags: m.tags });
+    out.push({
+      source: 'draft',
+      scene: d.scene || '(no scene)',
+      name: d.name,
+      level: d.level,
+      createdAt: d.createdAt ?? d.savedAt,
+      archived: m.archived,
+      tags: m.tags,
+    });
   }
   return out;
 }
@@ -2304,7 +3369,9 @@ function syncShellTools(entries: LevelEntry[]): void {
   const archBtn = $('sh-arch');
   archBtn.classList.toggle('on', showArchived);
   const archivedCount = entries.filter((e) => e.archived).length;
-  archBtn.textContent = showArchived ? '📦 hide archived' : `📦 show archived${archivedCount ? ` (${archivedCount})` : ''}`;
+  archBtn.textContent = showArchived
+    ? '📦 hide archived'
+    : `📦 show archived${archivedCount ? ` (${archivedCount})` : ''}`;
   // keep the active tag filter to tags that still exist, then render the chips
   const tags = allTags(entries);
   tagFilter = tagFilter.filter((t) => tags.includes(t));
@@ -2438,7 +3505,9 @@ let wizardBg: BackgroundKind = 'grid';
 let wizardShape: WorldShape = 'wide';
 
 function syncWizardBg(): void {
-  document.querySelectorAll<HTMLElement>('.bgw[data-nlbg]').forEach((b) => b.classList.toggle('on', b.dataset.nlbg === wizardBg));
+  document
+    .querySelectorAll<HTMLElement>('.bgw[data-nlbg]')
+    .forEach((b) => b.classList.toggle('on', b.dataset.nlbg === wizardBg));
 }
 function syncWizardShape(): void {
   $('nl-shape').textContent = wizardShape === 'tall' ? '⬍ tall 900×1600' : '⬌ wide 1600×900';
@@ -2472,7 +3541,11 @@ function createFromWizard(): void {
   const saved = saveDraft(name, scene, l);
   $('nlmodal').style.display = 'none';
   showForge();
-  toast(saved ? `new level: ${name} — start forging` : `new level: ${name} (session only — no persistent storage)`);
+  toast(
+    saved
+      ? `new level: ${name} — start forging`
+      : `new level: ${name} (session only — no persistent storage)`,
+  );
 }
 document.querySelectorAll<HTMLElement>('.bgw[data-nlbg]').forEach((b) =>
   b.addEventListener('click', () => {
@@ -2522,7 +3595,10 @@ function addMgmtTag(): void {
   const input = $<HTMLInputElement>('mgmt-taginput');
   const raw = input.value.trim();
   if (!raw) return;
-  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const parts = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   setTags(mgmtKey, [...getManage(mgmtKey).tags, ...parts]);
   input.value = '';
   renderMgmtTags();
@@ -2539,7 +3615,10 @@ function openManage(e: LevelEntry): void {
   // committed levels ship inside the app bundle and can't be removed from the
   // browser — archiving is how you hide them.
   del.disabled = e.source === 'committed';
-  del.title = e.source === 'committed' ? "committed levels can't be deleted — archive to hide" : 'delete this draft permanently';
+  del.title =
+    e.source === 'committed'
+      ? "committed levels can't be deleted — archive to hide"
+      : 'delete this draft permanently';
   $('mgmtmodal').style.display = 'flex';
 }
 $('mgmt-tagadd').onclick = addMgmtTag;
@@ -2585,7 +3664,10 @@ function route(): void {
     const idx = cards.findIndex((c) => c.name === name);
     if (idx >= 0) {
       $('shell').classList.remove('on');
-      playFromShell(cards.map((c) => c.level), idx);
+      playFromShell(
+        cards.map((c) => c.level),
+        idx,
+      );
       return;
     }
   }
