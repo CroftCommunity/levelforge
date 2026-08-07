@@ -249,6 +249,50 @@ describe('validation — v0.8-forward fields', () => {
   it('rejects empty text', () => {
     expect(() => loadLevel(baseLevel([baseObject({ text: '' })]))).toThrow(/non-empty/);
   });
+  it('accepts alpha in (0,1] and preserves it', () => {
+    const l = loadLevel(
+      baseLevel([
+        baseObject({ alpha: 0.35 }),
+        baseObject({
+          id: 'o2',
+          shape: 'blob',
+          w: undefined,
+          h: undefined,
+          pts: [[0, 0]],
+          alpha: 1,
+        }),
+      ]),
+    );
+    expect(l.objects[0].alpha).toBe(0.35);
+    expect(l.objects[1].alpha).toBe(1);
+    expect(parseLevel(serializeLevel(l))).toEqual(l);
+  });
+  it('rejects an out-of-range alpha', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ alpha: 0 })]))).toThrow(/alpha/);
+    expect(() => loadLevel(baseLevel([baseObject({ alpha: 1.4 })]))).toThrow(/alpha/);
+  });
+  it('accepts fill on a blob and round-trips it', () => {
+    const l = loadLevel(
+      baseLevel([
+        baseObject({
+          shape: 'blob',
+          w: undefined,
+          h: undefined,
+          pts: [
+            [0, 0],
+            [40, 0],
+            [40, 40],
+          ],
+          fill: true,
+        }),
+      ]),
+    );
+    expect(l.objects[0].fill).toBe(true);
+    expect(parseLevel(serializeLevel(l))).toEqual(l);
+  });
+  it('rejects fill on a non-blob shape', () => {
+    expect(() => loadLevel(baseLevel([baseObject({ fill: true })]))).toThrow(/blob/);
+  });
 });
 
 describe('validation — rejections', () => {

@@ -93,11 +93,13 @@ const MAXZOOM = 4;
 const BRUSH = BRUSH_DEFAULT;
 
 /* --------------------------- paint tools ------------------------------- */
-/* The 🖌 paint preset is three tools in one — double-tap it to switch:
-   brush (bold blobs), pencil (fine lines), and a text cursor (typed glyphs
-   as physics pieces). Each carries its own three sizes; strokes and text can
-   take a custom color from the wheel (or inherit the material's paint). */
-type PaintTool = 'brush' | 'pencil' | 'text';
+/* The 🖌 paint preset is four tools in one — double-tap it to switch:
+   brush (bold blobs), pencil (fine lines), a text cursor (typed glyphs as
+   physics pieces), and an eraser that scrubs paint and text away. Brush and
+   pencil carry three sizes each; strokes and text can take a custom color
+   and opacity from the wheel (or inherit the material's paint), and the 📏
+   ruler / 🪣 fill / 🪞 mirror toggles bend how a stroke lands. */
+type PaintTool = 'brush' | 'pencil' | 'text' | 'eraser';
 interface PaintToolSpec {
   icon: string;
   name: string;
@@ -134,8 +136,16 @@ const PAINT_TOOLS: Record<PaintTool, PaintToolSpec> = {
     maxPts: 0,
     minSpacing: 0,
   },
+  eraser: {
+    icon: '🧽',
+    name: 'eraser',
+    blurb: 'tap or scrub to remove paint strokes and text (other pieces are safe)',
+    sizes: [0, 0, 0],
+    maxPts: 0,
+    minSpacing: 0,
+  },
 };
-const PAINT_TOOL_KEYS: PaintTool[] = ['brush', 'pencil', 'text'];
+const PAINT_TOOL_KEYS: PaintTool[] = ['brush', 'pencil', 'text', 'eraser'];
 
 /* ---------------------------- shape presets --------------------------- */
 interface ShapePreset {
@@ -246,6 +256,14 @@ interface Prefs {
   paintColor: string | null;
   /** Last 5 wheel-picked colors, newest first. */
   paintRecents: string[];
+  /** Stroke opacity (0.1–1). */
+  paintAlpha: number;
+  /** 📏 ruler: strokes become straight start→end lines. */
+  paintLine: boolean;
+  /** 🪣 fill: close the stroke and flood its interior. */
+  paintFill: boolean;
+  /** 🪞 mirror: paint both sides of the board's vertical centerline. */
+  paintMirror: boolean;
 }
 const PREFS_KEY = 'lf:prefs';
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -257,9 +275,13 @@ function loadPrefs(): Prefs {
     hero: DEFAULT_HERO,
     recents: ['🎃', '💣', '⭐', '🦆', '👿'],
     paintTool: 'brush',
-    paintSize: { brush: 1, pencil: 1, text: 1 },
+    paintSize: { brush: 1, pencil: 1, text: 1, eraser: 1 },
     paintColor: null,
     paintRecents: [],
+    paintAlpha: 1,
+    paintLine: false,
+    paintFill: false,
+    paintMirror: false,
   };
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
@@ -278,6 +300,7 @@ function loadPrefs(): Prefs {
         brush: szIdx(p.paintSize?.brush),
         pencil: szIdx(p.paintSize?.pencil),
         text: szIdx(p.paintSize?.text),
+        eraser: szIdx(p.paintSize?.eraser),
       },
       paintColor:
         typeof p.paintColor === 'string' && COLOR_RE.test(p.paintColor) ? p.paintColor : null,
@@ -286,6 +309,13 @@ function loadPrefs(): Prefs {
             .filter((c: unknown) => typeof c === 'string' && COLOR_RE.test(c))
             .slice(0, 5)
         : [],
+      paintAlpha:
+        typeof p.paintAlpha === 'number' && p.paintAlpha >= 0.1 && p.paintAlpha <= 1
+          ? p.paintAlpha
+          : 1,
+      paintLine: p.paintLine === true,
+      paintFill: p.paintFill === true,
+      paintMirror: p.paintMirror === true,
     };
   } catch {
     return fallback;
@@ -305,6 +335,10 @@ function savePrefs(): void {
         paintSize,
         paintColor,
         paintRecents,
+        paintAlpha,
+        paintLine,
+        paintFill,
+        paintMirror,
       }),
     );
   } catch {
@@ -348,6 +382,10 @@ let paintTool: PaintTool = prefs.paintTool;
 const paintSize: Record<PaintTool, number> = { ...prefs.paintSize };
 let paintColor: string | null = prefs.paintColor;
 let paintRecents: string[] = [...prefs.paintRecents];
+let paintAlpha = prefs.paintAlpha;
+let paintLine = prefs.paintLine;
+let paintFill = prefs.paintFill;
+let paintMirror = prefs.paintMirror;
 /** Current stroke radius (brush/pencil) or font px (text) for the armed tool. */
 const paintR = (): number => PAINT_TOOLS[paintTool].sizes[paintSize[paintTool]];
 
@@ -699,7 +737,9 @@ function drawEdit(): void {
         ? armed.shape === 'blob'
           ? paintTool === 'text'
             ? 'tap the board to place text'
-            : 'drag to paint'
+            : paintTool === 'eraser'
+              ? 'tap or scrub to erase paint & text'
+              : 'drag to paint'
           : 'tap the board to stamp'
         : 'arm a shape, then tap the board · 💡 explains everything',
       level.world.w / 2,
@@ -732,22 +772,28 @@ function drawEdit(): void {
     drawMaterialCtx(ctx, o, false);
     if (ghost) ctx.globalAlpha = 1;
   }
-  // live paint preview
+  // live paint preview (and its 🪞 mirror twin, when mirror painting is on)
   if (gesture && gesture.kind === 'paint' && gesture.pts.length) {
-    drawMaterialCtx(
-      ctx,
-      {
-        shape: 'blob',
-        x: 0,
-        y: 0,
-        angle: 0,
-        material: curMat,
-        brushR: gesture.r,
-        pts: gesture.pts.map((p) => [p.x, p.y] as [number, number]),
-        color: paintColor ?? undefined,
-      },
-      true,
-    );
+    const previews: Array<(p: { x: number; y: number }) => [number, number]> = [(p) => [p.x, p.y]];
+    if (paintMirror) previews.push((p) => [level.world.w - p.x, p.y]);
+    for (const map of previews) {
+      drawMaterialCtx(
+        ctx,
+        {
+          shape: 'blob',
+          x: 0,
+          y: 0,
+          angle: 0,
+          material: curMat,
+          brushR: gesture.r,
+          pts: gesture.pts.map(map),
+          color: paintColor ?? undefined,
+          alpha: paintAlpha < 0.995 ? paintAlpha : undefined,
+          fill: paintFill || undefined,
+        },
+        true,
+      );
+    }
   }
   const sel = selected();
   if (sel) {
@@ -849,7 +895,8 @@ type Gesture =
   | { kind: 'pinch'; d0: number; a0: number; o: LevelObject }
   | { kind: 'rotate'; cx: number; cy: number; a0: number; pa0: number }
   | { kind: 'move'; dx: number; dy: number; s0: { sx: number; sy: number }; lifted: boolean }
-  | { kind: 'paint'; pts: { x: number; y: number }[]; r: number; tool: PaintTool }
+  | { kind: 'paint'; pts: { x: number; y: number }[]; r: number; tool: PaintTool; line: boolean }
+  | { kind: 'erase'; snapped: boolean }
   | { kind: 'path' }
   | { kind: 'sling' }
   | { kind: 'goal' };
@@ -1031,9 +1078,48 @@ function placeArmed(p: { x: number; y: number }, sp: { sx: number; sy: number })
   syncInspector();
 }
 
-function finishPaint(pts: { x: number; y: number }[], brushR: number): void {
-  if (!pts.length) return;
-  snap();
+/** Densify a sparse stroke so consecutive points sit within `spacing` — the
+    physics beads must overlap. 📏 ruler strokes record only their endpoints. */
+function densify(
+  pts: { x: number; y: number }[],
+  spacing: number,
+  cap: number,
+): { x: number; y: number }[] {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length && out.length < cap; i++) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const steps = Math.max(1, Math.ceil(Math.hypot(cur.x - prev.x, cur.y - prev.y) / spacing));
+    for (let k = 1; k <= steps && out.length < cap; k++) {
+      out.push({
+        x: prev.x + ((cur.x - prev.x) * k) / steps,
+        y: prev.y + ((cur.y - prev.y) * k) / steps,
+      });
+    }
+  }
+  return out;
+}
+
+/** One light neighbour-average pass so finger jitter disappears from long
+    freehand curves. Endpoints are kept where the finger put them. */
+function smoothStroke(pts: { x: number; y: number }[]): { x: number; y: number }[] {
+  if (pts.length < 5) return pts;
+  return pts.map((p, i) => {
+    if (i === 0 || i === pts.length - 1) return p;
+    return {
+      x: (pts[i - 1].x + 2 * p.x + pts[i + 1].x) / 4,
+      y: (pts[i - 1].y + 2 * p.y + pts[i + 1].y) / 4,
+    };
+  });
+}
+
+/** Build a blob object from stroke points, applying the paint color/opacity
+    and the 🪣 fill flag. Coordinates become centre + relative points. */
+function strokeToBlob(
+  pts: { x: number; y: number }[],
+  brushR: number,
+  mirrored: boolean,
+): LevelObject {
   let cxx = 0;
   let cyy = 0;
   for (const p of pts) {
@@ -1042,10 +1128,11 @@ function finishPaint(pts: { x: number; y: number }[], brushR: number): void {
   }
   cxx /= pts.length;
   cyy /= pts.length;
+  const cx = mirrored ? level.world.w - cxx : cxx;
   const o: LevelObject = {
     id: nid(),
     shape: 'blob',
-    x: snapN(cxx),
+    x: snapN(cx),
     y: snapN(cyy),
     angle: 0,
     material: curMat,
@@ -1053,12 +1140,44 @@ function finishPaint(pts: { x: number; y: number }[], brushR: number): void {
     path: null,
     note: '',
     brushR,
-    pts: pts.map((p) => [Math.round(p.x - cxx), Math.round(p.y - cyy)] as [number, number]),
+    pts: pts.map(
+      (p) =>
+        [Math.round((mirrored ? -1 : 1) * (p.x - cxx)), Math.round(p.y - cyy)] as [number, number],
+    ),
   };
   if (paintColor) o.color = paintColor;
+  if (paintAlpha < 0.995) o.alpha = Math.round(paintAlpha * 100) / 100;
+  if (paintFill) o.fill = true;
+  return o;
+}
+
+function finishPaint(pts: { x: number; y: number }[], brushR: number, line = false): void {
+  if (!pts.length) return;
+  snap();
+  // ruler strokes carry only endpoints; freehand ones get a light smoothing pass
+  const stroke = line ? densify(pts, Math.max(brushR * 1.2, 8), 200) : smoothStroke(pts);
+  const o = strokeToBlob(stroke, brushR, false);
   level.objects.push(o);
+  // 🪞 mirror: the twin lands across the board's vertical centerline
+  if (paintMirror) level.objects.push(strokeToBlob(stroke, brushR, true));
   selId = o.id;
   if (settings.afterPlace === 'adjust') setArmed(null, true);
+  syncInspector();
+}
+
+/** 🧽 eraser: remove the paint stroke or text piece under the finger. Other
+    pieces (planks, villains, structure) are safe from an accidental scrub. */
+function eraseAt(p: { x: number; y: number }): void {
+  const hit = hitObject(p);
+  if (!hit || !(hit.shape === 'blob' || hit.text != null)) return;
+  if (gesture && gesture.kind === 'erase' && !gesture.snapped) {
+    snap();
+    gesture.snapped = true;
+  }
+  level.objects = level.objects.filter((o) => o.id !== hit.id);
+  if (selId === hit.id) selId = null;
+  if (passthroughId === hit.id) passthroughId = null;
+  scheduleAutosave();
   syncInspector();
 }
 
@@ -1072,6 +1191,12 @@ cv.addEventListener('pointerdown', (e) => {
   if (mode === 'play') {
     if (session instanceof PlaySession) session.pointerDown(p);
     else if (session instanceof DropSession) session.tap();
+    return;
+  }
+
+  // eyedropper: the next tap grabs a piece's color instead of doing anything else
+  if (pickingColor) {
+    applyEyedrop(hitObject(p));
     return;
   }
 
@@ -1139,7 +1264,12 @@ cv.addEventListener('pointerdown', (e) => {
       openTextModal(p);
       return;
     }
-    gesture = { kind: 'paint', pts: [p], r: paintR(), tool: paintTool };
+    if (paintTool === 'eraser') {
+      gesture = { kind: 'erase', snapped: false };
+      eraseAt(p);
+      return;
+    }
+    gesture = { kind: 'paint', pts: [p], r: paintR(), tool: paintTool, line: paintLine };
     return;
   }
 
@@ -1199,12 +1329,19 @@ cv.addEventListener('pointermove', (e) => {
   const sel = selected();
 
   if (gesture.kind === 'paint') {
-    const spec = PAINT_TOOLS[gesture.tool];
-    // spacing floor keeps a fine pencil from spending its point budget in an inch
-    const spacing = Math.max(gesture.r * 0.6, spec.minSpacing);
-    const last = gesture.pts[gesture.pts.length - 1];
-    if (Math.hypot(p.x - last.x, p.y - last.y) > spacing && gesture.pts.length < spec.maxPts)
-      gesture.pts.push(p);
+    if (gesture.line) {
+      // 📏 ruler: the stroke is just start → fingertip; densified on release
+      gesture.pts = [gesture.pts[0], p];
+    } else {
+      const spec = PAINT_TOOLS[gesture.tool];
+      // spacing floor keeps a fine pencil from spending its point budget in an inch
+      const spacing = Math.max(gesture.r * 0.6, spec.minSpacing);
+      const last = gesture.pts[gesture.pts.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) > spacing && gesture.pts.length < spec.maxPts)
+        gesture.pts.push(p);
+    }
+  } else if (gesture.kind === 'erase') {
+    eraseAt(p);
   } else if (gesture.kind === 'vpan') {
     view.ox += sp.sx - prevS.sx;
     view.oy += sp.sy - prevS.sy;
@@ -1293,7 +1430,7 @@ function endPointer(e: PointerEvent): void {
   if (pointers.size > 0) return;
   const sel = selected();
   if (gesture) {
-    if (gesture.kind === 'paint') finishPaint(gesture.pts, gesture.r);
+    if (gesture.kind === 'paint') finishPaint(gesture.pts, gesture.r, gesture.line);
     if (gesture.kind === 'move' && sel) {
       const m = applyMagnet(sel);
       if (!m.sx) sel.x = snapN(sel.x);
@@ -2191,13 +2328,23 @@ function openPaintTools(): void {
 $('pt-close').onclick = () => ($('ptmodal').style.display = 'none');
 $('pt-tool').onclick = () => openPaintTools();
 
-/** The paint row (tool · color · S/M/L) rides beside the materials while 🖌
-    is armed. The color swatch falls back to the material's own paint. */
+/** The paint row (tool · color · S/M/L · 📏🪣🪞) rides beside the materials
+    while 🖌 is armed. The color swatch falls back to the material's own paint.
+    The eraser needs only the tool button; text keeps color + sizes but the
+    stroke toggles make no sense for it. */
 function syncPaintRow(): void {
   const show = mode === 'edit' && !!armed && armed.shape === 'blob';
   $('paintrow').style.display = show ? 'flex' : 'none';
   if (!show) return;
   $('pt-tool').textContent = PAINT_TOOLS[paintTool].icon;
+  const stroke = paintTool === 'brush' || paintTool === 'pencil';
+  $('pt-color').style.display = paintTool === 'eraser' ? 'none' : '';
+  (document.querySelector('.szsel') as HTMLElement).style.display =
+    paintTool === 'eraser' ? 'none' : 'flex';
+  for (const id of ['pt-line', 'pt-fill', 'pt-mirror']) $(id).style.display = stroke ? '' : 'none';
+  $('pt-line').classList.toggle('on', paintLine);
+  $('pt-fill').classList.toggle('on', paintFill);
+  $('pt-mirror').classList.toggle('on', paintMirror);
   $('pt-colorsw').style.background = paintColor ?? MATERIALS[curMat].color;
   $('pt-color').title = paintColor
     ? `stroke color ${paintColor} — tap for the color wheel`
@@ -2206,6 +2353,21 @@ function syncPaintRow(): void {
     .querySelectorAll<HTMLElement>('.szbtn')
     .forEach((b) => b.classList.toggle('on', Number(b.dataset.sz) === paintSize[paintTool]));
 }
+$('pt-line').onclick = () => {
+  paintLine = !paintLine;
+  savePrefs();
+  syncPaintRow();
+};
+$('pt-fill').onclick = () => {
+  paintFill = !paintFill;
+  savePrefs();
+  syncPaintRow();
+};
+$('pt-mirror').onclick = () => {
+  paintMirror = !paintMirror;
+  savePrefs();
+  syncPaintRow();
+};
 document.querySelectorAll<HTMLButtonElement>('.szbtn').forEach((b) =>
   b.addEventListener('click', () => {
     paintSize[paintTool] = Number(b.dataset.sz);
@@ -2421,6 +2583,11 @@ function renderColorRecents(): void {
     box.appendChild(b);
   }
 }
+/** Reflect an opacity value (0–1) into the slider + its % label. */
+function syncAlphaRow(alpha: number): void {
+  $<HTMLInputElement>('calpha').value = String(Math.round(alpha * 100));
+  $('calphaval').textContent = `${Math.round(alpha * 100)}%`;
+}
 function openColorWheel(target: 'paint' | 'selection'): void {
   colorTarget = target;
   colorSnapped = false;
@@ -2431,6 +2598,7 @@ function openColorWheel(target: 'paint' | 'selection'): void {
       ? (sel?.color ?? MATERIALS[sel?.material ?? curMat].color)
       : (paintColor ?? MATERIALS[curMat].color);
   setHsvFromHex(base);
+  syncAlphaRow(target === 'selection' ? (sel?.alpha ?? 1) : paintAlpha);
   $('cprev').style.background = base;
   $<HTMLInputElement>('chex').value = base;
   $('ctitle').textContent =
@@ -2474,6 +2642,26 @@ $<HTMLInputElement>('cval').addEventListener('input', () => {
   drawWheel();
   commitColor();
 });
+/* Opacity applies live, like the wheel: to the selected piece, or as the
+   stroke opacity for new paint and text. Full opacity drops the field. */
+$<HTMLInputElement>('calpha').addEventListener('input', () => {
+  const a = Number($<HTMLInputElement>('calpha').value) / 100;
+  syncAlphaRow(a);
+  if (colorTarget === 'selection') {
+    const s = selected();
+    if (!s) return;
+    if (!colorSnapped) {
+      snap();
+      colorSnapped = true;
+    }
+    if (a >= 0.995) delete s.alpha;
+    else s.alpha = Math.round(a * 100) / 100;
+    scheduleAutosave();
+  } else {
+    paintAlpha = a;
+    savePrefs();
+  }
+});
 $<HTMLInputElement>('chex').addEventListener('change', () => {
   const el = $<HTMLInputElement>('chex');
   let v = el.value.trim();
@@ -2499,16 +2687,18 @@ $('c-material').onclick = () => {
   colorPicked = null;
   if (colorTarget === 'selection') {
     const s = selected();
-    if (s && s.color) {
+    if (s && (s.color || s.alpha != null)) {
       if (!colorSnapped) {
         snap();
         colorSnapped = true;
       }
       delete s.color;
+      delete s.alpha;
       scheduleAutosave();
     }
   } else {
     paintColor = null;
+    paintAlpha = 1;
     savePrefs();
     syncPaintRow();
   }
@@ -2517,6 +2707,56 @@ $('c-material').onclick = () => {
 };
 $('tg-color').onclick = () => {
   if (selected()) openColorWheel('selection');
+};
+
+/* 💧 eyedropper: close the popup, and the next tap on the board grabs that
+   piece's color (its tint, or its material's paint) into the same target. */
+let pickingColor: 'paint' | 'selection' | null = null;
+$('c-pick').onclick = () => {
+  pickingColor = colorTarget;
+  $('cmodal').style.display = 'none';
+  toast('eyedropper — tap a piece to grab its color');
+};
+function applyEyedrop(hit: LevelObject | null): void {
+  const target = pickingColor!;
+  pickingColor = null;
+  if (!hit) {
+    toast('eyedropper cancelled');
+    return;
+  }
+  const hex = hit.color ?? MATERIALS[hit.material].color;
+  if (target === 'selection') {
+    const s = selected();
+    if (s) {
+      snap();
+      s.color = hex;
+    }
+  } else {
+    paintColor = hex;
+  }
+  paintRecents = [hex, ...paintRecents.filter((c) => c !== hex)].slice(0, 5);
+  savePrefs();
+  syncPaintRow();
+  syncInspector();
+  toast(`picked ${hex}`);
+}
+
+/* ---------------------- z-order: front / back -------------------------- */
+/* Array order IS the draw order (and the tap-hit order), so layering is just
+   moving the piece within level.objects. Physics doesn't care. */
+$('tg-front').onclick = () => {
+  const s = selected();
+  if (!s || level.objects[level.objects.length - 1] === s) return;
+  snap();
+  level.objects = [...level.objects.filter((o) => o.id !== s.id), s];
+  toast('brought to front');
+};
+$('tg-back').onclick = () => {
+  const s = selected();
+  if (!s || level.objects[0] === s) return;
+  snap();
+  level.objects = [s, ...level.objects.filter((o) => o.id !== s.id)];
+  toast('sent to back');
 };
 
 /* Haptic tick on the corner buttons — pointerdown, not click, so the buzz

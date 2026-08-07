@@ -36,6 +36,10 @@ export interface RenderObject {
   color?: string;
   /** Box-only label: the box renders as these glyphs (physics keeps w×h). */
   text?: string;
+  /** Opacity in (0, 1]; omitted = opaque. Rendering only. */
+  alpha?: number;
+  /** Blob-only: render the stroke as a closed, filled shape. */
+  fill?: boolean;
 }
 
 /** A text box's font size from its box height — one formula shared with the
@@ -59,10 +63,12 @@ export function drawMaterialCtx(
   const m = MATERIALS[o.material];
   // a custom paint color overrides the material's base fill (rendering only)
   const baseColor = o.color ?? m.color;
+  // a piece's own opacity scales every alpha the shape branches set
+  const alphaMul = o.alpha ?? 1;
   c.save();
   c.translate(o.x, o.y);
   c.rotate((o.angle || 0) / DEG);
-  c.globalAlpha = ghost ? 0.45 : o.material === 'ice' ? 0.82 : 1;
+  c.globalAlpha = (ghost ? 0.45 : o.material === 'ice' ? 0.82 : 1) * alphaMul;
   c.fillStyle = baseColor;
   c.strokeStyle = 'rgba(0,0,0,.35)';
   c.lineWidth = 2;
@@ -175,6 +181,16 @@ export function drawMaterialCtx(
           c.stroke();
         }
       }
+      // fill bucket: close the stroke and flood its interior. Visual only —
+      // the physics body stays the bead-chain outline.
+      if (o.fill && pts.length > 2) {
+        c.fillStyle = baseColor;
+        c.beginPath();
+        c.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+        c.closePath();
+        c.fill();
+      }
       if (o.material === 'stone') {
         c.fillStyle = 'rgba(0,0,0,.18)';
         for (let i = 0; i < pts.length; i++) {
@@ -196,7 +212,7 @@ export function drawMaterialCtx(
     if (sprite) {
       // custom image skin, clipped to the body's circle
       c.save();
-      c.globalAlpha = ghost ? 0.6 : 1;
+      c.globalAlpha = (ghost ? 0.6 : 1) * alphaMul;
       c.beginPath();
       c.arc(0, 0, r, 0, 7);
       c.clip();
@@ -205,18 +221,18 @@ export function drawMaterialCtx(
       const dh = sprite.height * s;
       c.drawImage(sprite, -dw / 2, -dh / 2, dw, dh);
       c.restore();
-      c.globalAlpha = ghost ? 0.4 : 0.6;
+      c.globalAlpha = (ghost ? 0.4 : 0.6) * alphaMul;
       c.strokeStyle = 'rgba(0,0,0,.3)';
       c.lineWidth = 2;
       c.beginPath();
       c.arc(0, 0, r, 0, 7);
       c.stroke();
     } else {
-      c.globalAlpha = ghost ? 0.45 : 0.25;
+      c.globalAlpha = (ghost ? 0.45 : 0.25) * alphaMul;
       c.beginPath();
       c.arc(0, 0, r, 0, 7);
       c.fill();
-      c.globalAlpha = ghost ? 0.6 : 1;
+      c.globalAlpha = (ghost ? 0.6 : 1) * alphaMul;
       c.font = r * 1.9 + 'px system-ui,sans-serif';
       c.textAlign = 'center';
       c.textBaseline = 'middle';

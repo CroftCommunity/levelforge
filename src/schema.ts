@@ -126,6 +126,11 @@ export interface LevelObject {
       glyphs themselves (in `color` or the material color) while physics keeps
       the box's w×h. The forge's text cursor writes these. */
   text?: string;
+  /** v0.8-forward: opacity in (0, 1]. Rendering only; omitted = opaque. */
+  alpha?: number;
+  /** v0.8-forward: blob-only — render the stroke as a closed, filled shape.
+      Physics stays the bead-chain outline (a documented simplification). */
+  fill?: boolean;
 }
 
 export interface LevelMeta {
@@ -453,6 +458,18 @@ function validateObject(o: unknown, index: number, seen: Set<string>): LevelObje
       `${where}.text must be a non-empty string.`,
     );
     out.text = obj.text;
+  }
+  if (obj.alpha != null) {
+    req(
+      isFiniteNum(obj.alpha) && obj.alpha > 0 && obj.alpha <= 1,
+      `${where}.alpha must be a number in (0, 1].`,
+    );
+    out.alpha = obj.alpha;
+  }
+  if (obj.fill != null) {
+    req(shape === 'blob', `${where}.fill is only valid on blob shapes.`);
+    req(typeof obj.fill === 'boolean', `${where}.fill must be a boolean.`);
+    out.fill = obj.fill;
   }
   return out;
 }

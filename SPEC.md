@@ -93,6 +93,10 @@ Object shapes:
 
 - `object.text`: optional, box shapes only — a label string. The box renders as the glyphs themselves (in `color` or the material color) while physics keeps the box's `w`×`h`; the forge measures `w`/`h` to hug the glyphs (`h = fontPx * 1.3`). Written by the paint tray's text cursor.
 
+- `object.alpha`: optional opacity in `(0, 1]`. Rendering only; omitted means opaque. Written by the color wheel's opacity slider.
+
+- `object.fill`: optional, blob shapes only — render the stroke as a closed, filled shape (the 🪣 fill toggle). Physics stays the bead-chain outline; this is a documented simplification.
+
 ## Materials
 
 Density, friction, restitution are matter-js body properties. `breakAt` is the impact threshold in the break model below; null means unbreakable.
