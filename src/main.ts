@@ -1737,8 +1737,15 @@ $('ef-none').onclick = () => {
   $('efmodal').style.display = 'none';
   toast('hit effect cleared');
 };
+/* Haptic tick on the corner buttons — pointerdown, not click, so the buzz
+   lands with the finger. Guarded: vibrate is absent on iOS Safari/desktop. */
+function buzz(): void {
+  navigator.vibrate?.(10);
+}
 $('undo').onclick = doUndo;
 $('redo').onclick = doRedo;
+$('undo').onpointerdown = buzz;
+$('redo').onpointerdown = buzz;
 
 /* -------------------- hamburger menu (top-right) ---------------------- */
 /* The less-used top-bar actions live here to keep the bar thumb-light:
