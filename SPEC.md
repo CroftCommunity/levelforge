@@ -114,6 +114,8 @@ Density, friction, restitution are matter-js body properties. `breakAt` is the i
 
 - If impact exceeds the material's `breakAt`, remove the body. If it was target material with role destroy, decrement the villain counter; at zero, LEVEL CLEAR.
 
+- Every broken target gets a visible send-off regardless of `hit`: the corpse sprite pops up, tumbles, and shrinks away amid a ring flash, light specks, and floating reaction glyphs (💫⭐✨). Bombs are the exception — they vaporise inside their own blast. The `explode` visual is a filled fireball plus a shockwave ring racing to the physical blast radius, lingering smoke, and a brief camera shake.
+
 ## Forge interaction model (port checklist)
 
 Modes and arming:

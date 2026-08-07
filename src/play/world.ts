@@ -62,21 +62,42 @@ interface Particle {
   r: number;
   grav: number;
   color: string;
-  shape: 'dot' | 'shard' | 'strip';
+  shape: 'dot' | 'shard' | 'strip' | 'glyph';
+  /** The character drawn for a 'glyph' particle (reaction emoji). */
+  glyph?: string;
   angle: number;
   spin: number;
   life: number;
   bornT: number;
 }
 
-/** A quick expanding ring drawn at a burst origin. */
+/** A burst drawn at a hit origin: a quick expanding 'ring' outline, or a
+    'boom' — a filled fireball plus a shockwave racing out to the blast radius. */
 interface Flash {
   x: number;
   y: number;
   color: string;
   bornT: number;
+  kind: 'ring' | 'boom';
+  rMax: number;
+  life: number;
 }
 const FLASH_MS = 260;
+const BOOM_MS = 460;
+
+/** A defeated villain's send-off: the corpse pops up, tumbles, and shrinks away. */
+interface Corpse {
+  o: LevelObject;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  spin: number;
+  bornT: number;
+}
+const DEFEAT_MS = 1000;
+const DEFEAT_GLYPHS = ['💫', '⭐', '✨'];
 
 interface Fragment {
   b: Matter.Body;
@@ -111,6 +132,9 @@ export class PlaySession {
   private fragments: Fragment[] = [];
   private particles: Particle[] = [];
   private flashes: Flash[] = [];
+  private corpses: Corpse[] = [];
+  /** Camera-shake magnitude (world units), kicked by explosions, decays fast. */
+  private shakeMag = 0;
   private reloadTimer: ReturnType<typeof setTimeout> | null = null;
   private collisionHandler: CollisionHandler | null = null;
   /** A static-geometry mirror used to roll out the aim trajectory. */
@@ -246,11 +270,20 @@ export class PlaySession {
     // not spray slivers.
     const idSet = new Set(p.lvlIds);
     const shards: Array<{ o: LevelObject; at: { x: number; y: number }; angle: number }> = [];
+    const defeats: Array<{ o: LevelObject; at: { x: number; y: number }; angle: number }> = [];
     if (!opts?.silent) {
       for (const o of this.level.objects) {
-        if (!idSet.has(o.id) || o.shape === 'blob' || !debrisKindFor(o.material)) continue;
+        if (!idSet.has(o.id)) continue;
         const part = this.partOf.get(o.id);
-        if (part) shards.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+        if (!part) continue;
+        if (o.shape !== 'blob' && debrisKindFor(o.material)) {
+          shards.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+        }
+        // Villains get a visible send-off instead of debris — except a bomb,
+        // which vaporises inside its own blast.
+        if (o.material === 'target' && behaviorFor(o) !== 'explode') {
+          defeats.push({ o, at: { x: part.position.x, y: part.position.y }, angle: part.angle });
+        }
       }
     }
     for (const id of p.lvlIds) this.broken.add(id);
@@ -263,14 +296,82 @@ export class PlaySession {
     if (this.status !== 'failed' && this.destroyLeft <= 0) this.status = 'won';
     // Ice shrinks as it melts; size its debris to the piece's current scale.
     for (const s of shards) this.shatterSolid(s.o, s.at, s.angle, vel, p.melt);
+    for (const d of defeats) this.spawnDefeat(d.o, d.at, d.angle, vel);
     if (p.blob) this.fractureBlob(p.blob, at, angle, vel);
     if (p.effect) this.playEffect(EFFECTS[p.effect], at, p.color, vel);
+  }
+
+  /** Give a defeated villain a visible send-off: the corpse pops up, tumbles,
+      and shrinks away amid a puff of specks and floating reaction glyphs. */
+  private spawnDefeat(o: LevelObject, at: { x: number; y: number }, angle: number, vel: { x: number; y: number }): void {
+    const dir = (vel.x || 1) >= 0 ? 1 : -1;
+    this.corpses.push({
+      o,
+      x: at.x,
+      y: at.y,
+      // carried by the impact, plus a cartoon pop upward and away
+      vx: vel.x * 0.45 + dir * (1.2 + Math.random() * 1.8),
+      vy: Math.min(0, vel.y * 0.3) - (8.5 + Math.random() * 3.5),
+      angle,
+      spin: dir * (0.14 + Math.random() * 0.16),
+      bornT: this.playT,
+    });
+    this.flashes.push({ x: at.x, y: at.y, color: '#ffffff', bornT: this.playT, kind: 'ring', rMax: 84, life: FLASH_MS });
+    const specks = ['#ffffff', '#ffe9a8', '#ffd0e0'];
+    for (let i = 0; i < 12; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 4 * (0.4 + Math.random() * 0.9);
+      this.particles.push({
+        x: at.x,
+        y: at.y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp - 1.5,
+        r: 2 + Math.random() * 3,
+        grav: 0.05,
+        color: specks[i % specks.length],
+        shape: 'dot',
+        angle: 0,
+        spin: 0,
+        life: 600 * (0.7 + Math.random() * 0.5),
+        bornT: this.playT,
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const sp = 2.5 + Math.random() * 2.5;
+      this.particles.push({
+        x: at.x,
+        y: at.y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        r: 7 + Math.random() * 5,
+        grav: 0.02,
+        color: '#ffffff',
+        shape: 'glyph',
+        glyph: DEFEAT_GLYPHS[(Math.random() * DEFEAT_GLYPHS.length) | 0],
+        angle: (Math.random() - 0.5) * 0.6,
+        spin: (Math.random() - 0.5) * 0.1,
+        life: 1100 * (0.8 + Math.random() * 0.4),
+        bornT: this.playT,
+      });
+    }
   }
 
   /** Throw a burst of particles for a hit effect, and (for explode) shove and
       chain-detonate neighbours. Purely cosmetic aside from the shove/detonate. */
   private playEffect(spec: EffectSpec, at: { x: number; y: number }, matColor: string, vel: { x: number; y: number }): void {
-    if (spec.flash) this.flashes.push({ x: at.x, y: at.y, color: spec.colors[0] ?? matColor, bornT: this.playT });
+    if (spec.flash) {
+      // explosions earn a full fireball + shockwave; other effects a quick ring
+      this.flashes.push({
+        x: at.x,
+        y: at.y,
+        color: spec.colors[0] ?? matColor,
+        bornT: this.playT,
+        kind: spec.shove ? 'boom' : 'ring',
+        rMax: spec.shove ? 150 : 80,
+        life: spec.shove ? BOOM_MS : FLASH_MS,
+      });
+    }
     const palette = spec.colors.length ? spec.colors : [matColor];
     for (let i = 0; i < spec.count; i++) {
       const ang = Math.random() * Math.PI * 2;
@@ -291,7 +392,29 @@ export class PlaySession {
         bornT: this.playT,
       });
     }
-    if (spec.shove) this.explodeAt(at.x, at.y);
+    if (spec.shove) {
+      // lingering smoke curls that drift up as the fireball fades
+      const smokes = ['#8d959e', '#a7afb8', '#6f767e'];
+      for (let i = 0; i < 10; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const sp = 1 + Math.random() * 2.5;
+        this.particles.push({
+          x: at.x + (Math.random() - 0.5) * 40,
+          y: at.y + (Math.random() - 0.5) * 40,
+          vx: Math.cos(ang) * sp,
+          vy: -0.5 - Math.random() * 1.5,
+          r: 8 + Math.random() * 10,
+          grav: -0.015,
+          color: smokes[i % smokes.length],
+          shape: 'dot',
+          angle: 0,
+          spin: 0,
+          life: 1500 * (0.7 + Math.random() * 0.6),
+          bornT: this.playT,
+        });
+      }
+      this.explodeAt(at.x, at.y);
+    }
   }
 
   /** Shatter a broken blob into scattering fragment bodies. */
@@ -356,6 +479,7 @@ export class PlaySession {
 
   /** Shove nearby bodies and detonate breakable ones within lethal range. */
   private explodeAt(x: number, y: number): void {
+    this.shakeMag = Math.min(22, this.shakeMag + 12);
     const detonate: Matter.Body[] = [];
     for (const b of this.bodies) {
       const p = b.plugin as BodyPlugin;
@@ -501,21 +625,59 @@ export class PlaySession {
       }
       this.particles = alive;
     }
-    if (this.flashes.length) this.flashes = this.flashes.filter((f) => this.playT - f.bornT <= FLASH_MS);
+    if (this.flashes.length) this.flashes = this.flashes.filter((f) => this.playT - f.bornT <= f.life);
+    // defeated villains tumble under light gravity until their moment is over
+    if (this.corpses.length) {
+      const step = Math.min(dt, 33) / 16.67;
+      const alive: Corpse[] = [];
+      for (const cse of this.corpses) {
+        if (this.playT - cse.bornT > DEFEAT_MS) continue;
+        cse.vy += this.engine.gravity.y * 0.45 * step;
+        cse.x += cse.vx * step;
+        cse.y += cse.vy * step;
+        cse.angle += cse.spin * step;
+        alive.push(cse);
+      }
+      this.corpses = alive;
+    }
+    if (this.shakeMag > 0.01) this.shakeMag *= Math.exp(-dt / 130);
   }
 
   /** Draw the hit-effect flashes and particles (over the pieces). */
   private renderEffects(ctx: CanvasRenderingContext2D): void {
     for (const fl of this.flashes) {
-      const k = (this.playT - fl.bornT) / FLASH_MS;
+      const k = (this.playT - fl.bornT) / fl.life;
       if (k < 0 || k > 1) continue;
       ctx.save();
-      ctx.globalAlpha = (1 - k) * 0.7;
-      ctx.strokeStyle = fl.color;
-      ctx.lineWidth = 3 + 4 * (1 - k);
-      ctx.beginPath();
-      ctx.arc(fl.x, fl.y, 6 + 70 * k, 0, 7);
-      ctx.stroke();
+      if (fl.kind === 'boom') {
+        const eased = 1 - (1 - k) * (1 - k);
+        // shockwave ring racing out to the real blast radius
+        ctx.globalAlpha = (1 - k) * 0.45;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2 + 16 * (1 - k);
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, 30 + (EXPLOSION.radius - 30) * eased, 0, 7);
+        ctx.stroke();
+        // fireball: a hot filled core that swells and burns out
+        const r = 26 + (fl.rMax - 26) * eased;
+        const g = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.35, '#ffd24a');
+        g.addColorStop(0.75, '#ff8a3d');
+        g.addColorStop(1, 'rgba(255,90,61,0)');
+        ctx.globalAlpha = (1 - k) * 0.9;
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, r, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = (1 - k) * 0.7;
+        ctx.strokeStyle = fl.color;
+        ctx.lineWidth = 3 + 5 * (1 - k);
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, 6 + (fl.rMax - 6) * k, 0, 7);
+        ctx.stroke();
+      }
       ctx.restore();
     }
     for (const pt of this.particles) {
@@ -528,6 +690,13 @@ export class PlaySession {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.r, 0, 7);
         ctx.fill();
+      } else if (pt.shape === 'glyph') {
+        ctx.translate(pt.x, pt.y);
+        ctx.rotate(pt.angle);
+        ctx.font = pt.r * 2.4 + 'px system-ui,sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pt.glyph || '💫', 0, 0);
       } else {
         ctx.translate(pt.x, pt.y);
         ctx.rotate(pt.angle);
@@ -549,6 +718,10 @@ export class PlaySession {
   }
 
   render(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    if (this.shakeMag > 0.25) {
+      ctx.translate(Math.sin(this.playT * 0.12) * this.shakeMag, Math.cos(this.playT * 0.149) * this.shakeMag);
+    }
     drawSlingshotCtx(ctx, this.level.slingshot.x, this.level.slingshot.y, false);
 
     // blob shatter debris (drawn under the pieces)
@@ -597,6 +770,18 @@ export class PlaySession {
       drawMaterialCtx(ctx, { ...o, x: part.position.x, y: part.position.y, angle: part.angle * DEG, note: '' }, false, melt);
     }
 
+    // defeated villains: the corpse swells on the hit, tumbles, and shrinks away
+    for (const cse of this.corpses) {
+      const k = (this.playT - cse.bornT) / DEFEAT_MS;
+      if (k < 0 || k > 1) continue;
+      const s = k < 0.45 ? 1 + 0.15 * Math.sin((k / 0.45) * Math.PI) : Math.max(0.02, 1 - (k - 0.45) / 0.55);
+      ctx.save();
+      ctx.translate(cse.x, cse.y);
+      ctx.scale(s, s);
+      drawMaterialCtx(ctx, { ...cse.o, x: 0, y: 0, angle: cse.angle * DEG, note: '' }, false);
+      ctx.restore();
+    }
+
     // hit-effect bursts, over the pieces
     this.renderEffects(ctx);
 
@@ -632,6 +817,7 @@ export class PlaySession {
       // hero: a round body skinned with meta.hero
       drawMaterialCtx(ctx, { shape: 'emoji', x: bx, y: by, r: BALL_R, angle: this.ball.angle * DEG, material: 'rubber', emoji: this.level.meta.hero || '🙂', note: '' }, false);
     }
+    ctx.restore();
   }
 
   /** Villains (destroy-role targets) remaining, for the HUD. */
