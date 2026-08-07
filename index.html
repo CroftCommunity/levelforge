@@ -364,20 +364,18 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 22px;
-        line-height: 1;
-        border: none;
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 50%;
         background: rgba(10, 15, 22, 0.26);
         color: #fff;
         opacity: 0.62;
-        /* a smidge of a darker outline so the arrowhead reads over the sky */
-        text-shadow:
-          0 1px 2px rgba(0, 0, 0, 0.65),
-          0 0 2px rgba(0, 0, 0, 0.5),
-          -1px 0 1px rgba(0, 0, 0, 0.45),
-          1px 0 1px rgba(0, 0, 0, 0.45);
         transition: opacity 0.15s ease;
+      }
+      .cornerbtn svg {
+        width: 20px;
+        height: 20px;
+        /* a smidge of darker shadow so the arrow reads over the sky */
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
       }
       .cornerbtn-l {
         left: max(8px, env(safe-area-inset-left, 0px));
@@ -389,7 +387,9 @@
         opacity: 0.92;
       }
       .cornerbtn:active:not(:disabled) {
-        transform: translateY(1px) scale(0.96);
+        transform: translateY(1px) scale(0.92);
+        opacity: 0.95;
+        background: rgba(10, 15, 22, 0.42);
       }
       .cornerbtn:disabled {
         opacity: 0.22;
@@ -1318,8 +1318,18 @@
     <div id="main">
       <div id="stage">
         <canvas id="cv"></canvas>
-        <button id="undo" class="cornerbtn cornerbtn-l" title="undo">↶</button>
-        <button id="redo" class="cornerbtn cornerbtn-r" title="redo">↷</button>
+        <button id="undo" class="cornerbtn cornerbtn-l" title="undo" aria-label="undo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4.5 9.5h8a5.5 5.5 0 0 1 0 11h-4" />
+            <path d="M8.5 5.5l-4 4 4 4" />
+          </svg>
+        </button>
+        <button id="redo" class="cornerbtn cornerbtn-r" title="redo" aria-label="redo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19.5 9.5h-8a5.5 5.5 0 0 0 0 11h4" />
+            <path d="M15.5 5.5l4 4-4 4" />
+          </svg>
+        </button>
         <div id="banner">LEVEL CLEAR</div>
         <button id="backbtn">‹ levels</button>
         <button id="resetbtn">↺ retry</button>
